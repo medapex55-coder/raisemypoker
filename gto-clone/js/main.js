@@ -39,7 +39,7 @@ function route() {
   const main = h('main#view', { tabindex: '-1' });
   mount(app, topNav(r), main);
   ROUTES[r].render(main);
-  document.title = `${ROUTES[r].label} · Spotwise`;
+  document.title = `${ROUTES[r].label} · RaiseMyPoker`;
 }
 
 // The player chip follows XP, streak and the daily goal live.
@@ -47,7 +47,7 @@ onChange(() => document.querySelector('.player-chip')?.replaceWith(PlayerChip())
 
 function topNav(active) {
   return h('header.topnav',
-    h('a.brand', { href: '#/study' }, Logo(), h('span', 'Spotwise')),
+    h('a.brand', { href: '#/study' }, Logo(), h('span', 'RaiseMyPoker')),
     h('nav', { 'aria-label': 'Navigation principale' }, Object.entries(ROUTES).filter(([, r]) => !r.hidden).map(([id, r]) =>
       h('a.navtab' + (id === active ? '.active' : ''), { href: '#/' + id, title: r.label, 'aria-label': r.label, 'aria-current': id === active ? 'page' : null }, h('span.nav-icon', { 'aria-hidden': 'true' }, r.icon), h('span.nav-label', r.label)))),
     h('span.grow'),

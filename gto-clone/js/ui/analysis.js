@@ -80,7 +80,7 @@ function render() {
   if (!root || !location.hash.startsWith('#/analysis')) return; // the page may have been left mid-solve
   mount(root, h('div.analysis-page',
     h('div.setup-head', h('h1', 'Analyse de main'),
-      h('p.muted', 'Colle le lien du replayer Winamax d\'une main. Spotwise la lit, la rejoue sur sa table 6-max, résout chaque street jouée à deux, puis note et explique chacune de tes décisions avec la même référence que dans Étude.')),
+      h('p.muted', 'Colle le lien du replayer Winamax d\'une main. RaiseMyPoker la lit, la rejoue sur sa table 6-max, résout chaque street jouée à deux, puis note et explique chacune de tes décisions avec la même référence que dans Étude.')),
     h('section.panel.analysis-form',
       h('label.field-label', { for: 'hh-link' }, 'Lien du replayer'),
       h('div.row.gap.wrap',
@@ -150,7 +150,7 @@ function decision(r) {
   const best = g.bestK;
   const call = toCallOf(st, step.p);
   const source = node.solved ? `Solver (CFR depuis ${['', 'le flop', 'la turn', 'la river'][node.solved.street]}, exploitabilité ${fr(node.solved.exploitability, 2)} % du pot)`
-    : st.street > 0 ? 'Modèle Spotwise (street non résolue)' : 'Préflop : tes charts, Nash tapis/fold ou modèle (voir l\'explication)';
+    : st.street > 0 ? 'Modèle RaiseMyPoker (street non résolue)' : 'Préflop : tes charts, Nash tapis/fold ou modèle (voir l\'explication)';
   const bad = ['inaccuracy', 'wrong', 'blunder'].includes(g.grade);
   return h('article.panel.decision-card.grade-border-' + g.grade,
     h('div.row.between',
@@ -179,6 +179,6 @@ function caveats() {
       hand.ante ? h('li', `Les antes (${hand.ante}) ne sont pas dans l'arbre : le pot de départ est un peu plus petit qu'en vrai.`) : null,
       h('li', `Calcul en chip EV${hand.ko ? ' : les primes (KO) ne sont pas comptées' : ''}.`),
       sized ? h('li', `Tailles réelles ajoutées à l'arbre : ${sized}.`) : null,
-      h('li', 'Les mises proches d\'une taille de l\'arbre (à 12 % près) y sont ramenées. Les pots à trois joueurs ou plus suivent le modèle Spotwise.'),
+      h('li', 'Les mises proches d\'une taille de l\'arbre (à 12 % près) y sont ramenées. Les pots à trois joueurs ou plus suivent le modèle RaiseMyPoker.'),
       ui.solveFlop ? h('li', 'Au flop, la turn est simplifiée dans le calcul (2/3 du pot ou tapis) ; la turn et la river sont ensuite résolues exactement.') : null));
 }

@@ -113,7 +113,7 @@ export function solverPanel(node, onChange) {
   }
   if (!solvable(st)) {
     return h('section.panel.solver-panel', { 'aria-label': 'Solver' }, title,
-      h('p.small.muted', 'Le solver travaille en heads-up : ce pot multiway reste sur le modèle Spotwise (approximation, pas un calcul d\'équilibre).'));
+      h('p.small.muted', 'Le solver travaille en heads-up : ce pot multiway reste sur le modèle RaiseMyPoker (approximation, pas un calcul d\'équilibre).'));
   }
   const root = streetRoot(st);
   const key = stateKey(root);
@@ -126,7 +126,7 @@ export function solverPanel(node, onChange) {
       h('button.btn.ghost.sm', { type: 'button', on: { click: stop } }, 'Arrêter'));
   }
   return h('section.panel.solver-panel', { 'aria-label': 'Solver' }, title,
-    h('p.small.muted', `Cette street suit le modèle Spotwise. Le solver calcule l'équilibre (CFR) depuis le début ${s.start}${root.street === 2 ? ', toutes les rivers comprises' : ''}, avec les ranges qui arrivent ici (tes charts au preflop) et les tailles de mise de l'arbre. Durée : ${s.time}.`),
+    h('p.small.muted', `Cette street suit le modèle RaiseMyPoker. Le solver calcule l'équilibre (CFR) depuis le début ${s.start}${root.street === 2 ? ', toutes les rivers comprises' : ''}, avec les ranges qui arrivent ici (tes charts au preflop) et les tailles de mise de l'arbre. Durée : ${s.time}.`),
     root.street === 1 ? h('p.small.muted', 'Au flop, la turn est jouée simplement (2/3 du pot ou tapis) et la river jusqu\'à l\'abattage : un arbre complet ne tiendrait pas dans le navigateur.') : null,
     job ? h('p.small.muted', 'Un autre calcul est en cours.') : null,
     h('button.btn.primary.sm', { type: 'button', disabled: !!job, on: { click: () => start(root) } }, `Résoudre ${s.name}`));

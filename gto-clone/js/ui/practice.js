@@ -129,7 +129,7 @@ function setupView() {
   const t = c.drill === 'target' ? P.program?.spots[0] : null; // spot opened from Leakfinder
   const mix = c.drill === 'mix';
   return h('div.setup',
-    h('div.setup-head', h('h1', 'Entraînement'), h('p.muted', 'Choisis un exercice, joue le spot et compare ton choix à la stratégie. La référence est la même que dans Étude : tes charts quand il y en a un pour le spot, sinon le modèle Spotwise.')),
+    h('div.setup-head', h('h1', 'Entraînement'), h('p.muted', 'Choisis un exercice, joue le spot et compare ton choix à la stratégie. La référence est la même que dans Étude : tes charts quand il y en a un pour le spot, sinon le modèle RaiseMyPoker.')),
     t ? h('section.panel.target-spot',
       h('div.row.between', h('div', h('div.small.muted', '🎯 Spot à corriger, ouvert depuis Leakfinder'), h('h2', t.title)),
         h('button.btn.ghost.sm', { type: 'button', on: { click: () => set('drill')('rfi') } }, 'Choisir un autre exercice')),
@@ -616,7 +616,7 @@ export function explain(node, i) {
     const codes = ch.parts.map((pt) => `${pt.depth}bb ${text(pt.chart.grid[cls.row][cls.col])}`);
     parts.push(ch.blend ? `Tes charts BB (${ch.title}) : ${codes.join(', ')}, ${mixNote(ch.blend)}.` : `Ton chart ${ch.parts[0].depth}bb (${ch.title}) : ${text(bbCode(ch, cls))}.`);
   }
-  if (st.street === 0 && !firstIn && !ch && !pf) parts.push('Référence : pas de chart pour ce spot, c\'est le modèle Spotwise (le même que dans Étude).');
+  if (st.street === 0 && !firstIn && !ch && !pf) parts.push('Référence : pas de chart pour ce spot, c\'est le modèle RaiseMyPoker (le même que dans Étude).');
   return parts.join(' ');
 }
 

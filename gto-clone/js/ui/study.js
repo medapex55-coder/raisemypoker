@@ -673,13 +673,13 @@ function pushFoldPanel(node) {
     h('ul.chart-rows',
       h('li', h('span.swatch', { style: { background: pf.kind === 'push' ? 'var(--act-allin)' : 'var(--act-call)' } }), pf.kind === 'push' ? 'Tapis' : 'Call', h('span.mono', pct(share, 1))),
       h('li', h('span.swatch', { style: { background: 'var(--act-fold)' } }), 'Fold', h('span.mono', pct(1 - share, 1)))),
-    h('p.small.muted', 'Pas de chart à cette profondeur : équilibre calculé par Spotwise sur les 169 mains, avec les équités préflop (±0,4 %). Sans ICM ni prime : en KO ou près de l\'argent, c\'est le modèle qui s\'applique.'));
+    h('p.small.muted', 'Pas de chart à cette profondeur : équilibre calculé par RaiseMyPoker sur les 169 mains, avec les équités préflop (±0,4 %). Sans ICM ni prime : en KO ou près de l\'argent, c\'est le modèle qui s\'applique.'));
 }
 
 // Preflop spots with no chart of the user's: say where the strategy comes from.
 function modelNote(node) {
   if (node.st.street !== 0 || isFirstIn(node) || bbChart(node.st) || pushFoldSpot(node.st)) return null;
-  return h('p.small.muted.model-note', 'Pas de chart fourni pour ce spot : stratégie du modèle Spotwise, construite à partir des ranges d\'open, de la position et du prix. C\'est une approximation, pas un calcul de solveur.');
+  return h('p.small.muted.model-note', 'Pas de chart fourni pour ce spot : stratégie du modèle RaiseMyPoker, construite à partir des ranges d\'open, de la position et du prix. C\'est une approximation, pas un calcul de solveur.');
 }
 
 // Split and flex cells marked on the grid (one chart only: blended grids
