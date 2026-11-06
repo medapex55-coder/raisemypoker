@@ -83,6 +83,7 @@ export function renderStats(el) {
         return h('li.session' + (isOpen ? '.open' : ''),
           h('button.session-head', { type: 'button', 'aria-expanded': isOpen ? 'true' : 'false', on: { click: () => { isOpen ? open.delete(s.id) : open.add(s.id); renderStats(el); } } },
             h('span', isOpen ? '▾' : '▸'), h('strong', d ? `${d.icon} ${d.name}` : s.drill),
+            s.tour ? h('span.pill', `${s.tour.place}e / ${s.tour.players}${s.tour.note != null ? ` · ${String(s.tour.note).replace('.', ',')}/20` : ''}`) : null,
             s.config?.format === 'ko' ? h('span.pill', 'KO') : null,
             h('span.muted.small', new Date(s.startedAt).toLocaleString('fr-FR')), h('span.grow'),
             h('span.small', `${s.hands} mains`), h('span.small', `score ${pct(sc, 0)}`), s.xp ? h('span.small.xp-gain', `+${s.xp} XP`) : null, h('span.small.mono', `−${num(s.evLoss, 2)}bb`)),

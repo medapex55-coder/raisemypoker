@@ -56,8 +56,11 @@ const clone = (st) => ({
   history: st.history.slice(),
 });
 
-export const pot = (st) => st.invested.reduce((a, b) => a + b, 0);
-export const remaining = (st, p) => st.cfg.stack - st.invested[p];
+// Big blind ante: 1bb of dead money on every hand, as in the user's charts (which
+// are all made with it). cfg.ante overrides it, for a real hand's own antes.
+export const anteOf = (cfg) => cfg.ante ?? 1;
+export const pot = (st) => st.invested.reduce((a, b) => a + b, 0) + anteOf(st.cfg);
+export const remaining = (st, p) => st.cfg.stack - st.invested[p] - (p === 5 ? anteOf(st.cfg) : 0);
 export const alive = (st) => POS.map((_, i) => i).filter((i) => !st.folded[i]);
 export const toCallOf = (st, p) => Math.max(0, Math.min(st.currentBet - st.streetBet[p], remaining(st, p)));
 
@@ -121,6 +124,7 @@ export function legalActions(st) {
   const p = st.toAct;
   const call = toCallOf(st, p);
   const rem = remaining(st, p);
+  const canRaise = rem > call && alive(st).some((q) => q !== p && remaining(st, q) > 0); // nobody to raise against once all the others are all-in
   const acts = [];
   const P = pot(st);
   if (st.street === 0) {
@@ -129,7 +133,7 @@ export function legalActions(st) {
     // Limping first in: always allowed for the SB, for every seat when the open size is "limp".
     else if (st.raiseLevel > 0 || st.limpers.length || p === 4 || st.cfg.open === 'limp') acts.push({ type: 'call', amount: call });
     const firstIn = st.raiseLevel === 0 && !st.limpers.length;
-    if (st.raiseLevel <= 3 && rem > call && !(firstIn && st.cfg.open === 'limp')) {
+    if (st.raiseLevel <= 3 && canRaise && !(firstIn && st.cfg.open === 'limp')) {
       const level = st.raiseLevel + 1;
       const max = st.streetBet[p] + rem;
       const seen = new Set();
@@ -145,7 +149,7 @@ export function legalActions(st) {
     }
     // Shoving next to the raise or limp (see jamOption).
     const jam = st.streetBet[p] + rem;
-    if (jamOption(st) && st.raiseLevel <= 3 && rem > call && !acts.some((a) => a.type === 'allin')) {
+    if (jamOption(st) && st.raiseLevel <= 3 && canRaise && !acts.some((a) => a.type === 'allin')) {
       acts.push({ type: 'allin', to: jam, level: st.raiseLevel + 1 });
     }
     return acts;
@@ -165,7 +169,7 @@ export function legalActions(st) {
   }
   acts.push({ type: 'fold' });
   acts.push({ type: 'call', amount: call });
-  if (rem > call) {
+  if (canRaise) {
     // Raise to 3x the bet by default (the "⋯" menu adds or replaces multipliers);
     // a third raise, or one that commits most of the stack, is all-in.
     const max = st.streetBet[p] + rem;
@@ -290,7 +294,7 @@ export function stateKey(st) {
   const fmt = (st.cfg.ko ? '/ko' : '') + (st.cfg.stage && st.cfg.stage !== '100' ? '/' + st.cfg.stage : '') + (st.cfg.bf != null ? '/bf' + st.cfg.bf.toFixed(3) : '');
   const pl = st.cfg.players ? '/p' + JSON.stringify(st.cfg.players) : '';
   const cov = st.cfg.big != null ? '/big' + st.cfg.big : st.cfg.short != null ? '/short' + st.cfg.short : '';
-  return `${st.cfg.stack}bb/${st.cfg.open}${fmt}${st.cfg.multiway ? '/mw' : ''}${pl}${cov}#` + st.history.map((h) => h.kind === 'deal' ? '/' + h.cards.map(cardStr).join('') : POS[h.p] + ':' + actionKey(h.act)).join('|');
+  return `${st.cfg.stack}bb/${st.cfg.open}${fmt}${anteOf(st.cfg) !== 1 ? '/ante' + anteOf(st.cfg) : ''}${st.cfg.multiway ? '/mw' : ''}${pl}${cov}#` + st.history.map((h) => h.kind === 'deal' ? '/' + h.cards.map(cardStr).join('') : POS[h.p] + ':' + actionKey(h.act)).join('|');
 }
 
 export function actionLabel(st, act, units = 'bb') {

@@ -10,7 +10,7 @@ import { PREFLOP_EQUITY } from '../data/preflop-equity.js';
 
 export const PUSH_FOLD_STACK = 15; // at or below this depth (no chart there)
 const n = 169;
-const BLINDS = [0, 0, 0, 0, 0.5, 1];
+const BLINDS = [0, 0, 0, 0, 0.5, 2]; // what each seat has posted: the BB's blind and ante
 const ROUNDS = 400;
 
 let EQ = null, PC = null; // EQ[a * n + b]: a's equity vs b; PC: combo pairs sharing no card
@@ -88,7 +88,7 @@ export function pushFoldNash(stack) {
           if (c > 0) ev += reach * c * ((callE[i][j][a] / w) * (2 * S + dead(i, j)) - S);
           reach *= 1 - c;
         }
-        ev += reach * (1.5 - BLINDS[i]); // everyone folds: the blinds
+        ev += reach * (2.5 - BLINDS[i]); // everyone folds: the blinds and the ante
         brPush[i][a] = ev > -BLINDS[i] ? 1 : 0;
       }
     }

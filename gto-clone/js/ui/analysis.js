@@ -176,7 +176,7 @@ function caveats() {
   return h('section.panel', h('div.panel-title', 'Comment la main est rejouée'),
     h('ul.small.muted',
       h('li', `Stack effectif : ${fr(rep.stackBB)}bb, joué à ${rep.cfg.stack}bb (profondeur d'Étude la plus proche).`),
-      hand.ante ? h('li', `Les antes (${hand.ante}) ne sont pas dans l'arbre : le pot de départ est un peu plus petit qu'en vrai.`) : null,
+      hand.ante ? h('li', `Les antes de la main (${hand.ante} par joueur) sont comptées dans le pot de départ.`) : null,
       h('li', `Calcul en chip EV${hand.ko ? ' : les primes (KO) ne sont pas comptées' : ''}.`),
       sized ? h('li', `Tailles réelles ajoutées à l'arbre : ${sized}.`) : null,
       h('li', 'Les mises proches d\'une taille de l\'arbre (à 12 % près) y sont ramenées. Les pots à trois joueurs ou plus suivent le modèle RaiseMyPoker.'),

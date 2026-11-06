@@ -5,7 +5,7 @@ import { evalHand, catFr } from '../engine/evaluator.js';
 import { pickWeighted } from '../engine/rng.js';
 import {
   POS, STREETS, initialState, applyAction, dealBoard, foldTo, legalActions, actionLabel, actionRole,
-  aggression, pot, remaining, alive, toCallOf, STACKS,
+  aggression, pot, remaining, alive, toCallOf, STACKS, anteOf,
 } from '../engine/game.js';
 import { analyze, comboFreqs, comboEVs, classSummary, chartCode, chartCodeAt, chartBlend, getOpenStyle, rangesOf, chartDepth, bbChart, bbCode, pushFoldSpot, liveLine } from '../engine/strategy.js';
 import { saveSession, uid, getSettings, getProgress } from '../store.js';
@@ -14,6 +14,7 @@ import { markSlotDone } from '../data/program.js';
 import { recordDecision, recordSession, today, DAILY_GOAL, levelOf } from '../data/progress.js';
 import { celebrate, XpBar, DailyRing, LevelBadge } from './gamify.js';
 import { HandRow, showHandReplay } from './handreplay.js';
+import { BUYIN, createTournament, prizeLadder, nextHand, settleHand, realBet, decisionTags, tournamentReport } from '../data/tournament.js';
 
 export const DRILLS = [
   { id: 'rfi', name: 'Ouverture', icon: '🚪', desc: 'Tout le monde a foldé jusqu\'à toi avant le flop. Ouvre ou couche-toi.', heroes: [0, 1, 2, 3, 4], mode: 'spot' },
@@ -25,6 +26,7 @@ export const DRILLS = [
   { id: 'multiway', name: 'Multiway', icon: '👥', desc: 'Un open payé par plusieurs joueurs : joue le coup à 3 ou 4 dès le flop.', heroes: [0, 1, 2, 3, 4, 5], mode: 'full' },
   { id: 'full', name: 'Mains complètes', icon: '♠️', desc: 'À six joueurs, de la donne jusqu\'à l\'abattage.', heroes: [0, 1, 2, 3, 4, 5], mode: 'full' },
   { id: 'mix', name: 'Spots aléatoires', icon: '🎲', desc: 'Aucun réglage : sur 10 mains, un mélange d\'ouvertures, de défenses, de 3-bets, de BB, de postflop et de multiway, positions et stacks au hasard.', heroes: [0, 1, 2, 3, 4, 5], mode: 'mix' },
+  { id: 'tournament', name: 'Tournoi', icon: '🏆', desc: 'Un vrai tournoi : prize pool, blindes qui montent, bulle, ICM, élimination. Une note et un récap à la fin.', heroes: [0, 1, 2, 3, 4, 5], mode: 'full' },
   // Launched from Programme only: the spots to fix from Leakfinder.
   { id: 'program', name: 'Programme', icon: '📅', desc: 'Tes spots à corriger, planifiés dans Programme.', heroes: [0, 1, 2, 3, 4, 5], mode: 'spot', hidden: true },
   // Opened from Leakfinder's « Étudier » button: one spot to fix.
@@ -77,7 +79,7 @@ function mixCfg(drill) {
 
 const DEFAULT_CFG = {
   drill: 'rfi', hero: 'any', villain: 'any', cover: 'equal', stack: 100, open: '2.5', format: 'vanilla', stage: '100', multiway: false, bbDepth: 50,
-  level: 'medium', rng: 'off', timebank: 0, pause: 'always', autoNext: true,
+  level: 'medium', rng: 'off', timebank: 0, pause: 'always', autoNext: true, tourPlayers: 90, tourHands: 60,
 };
 // The engine config of a drill: format, field stage, multiway pots.
 // The BB drill plays the spots its charts are made for, at the chosen depth.
@@ -112,7 +114,7 @@ export function renderPractice(el) {
 
 function render() {
   if (!root) return;
-  if (!P.session) { mount(root, setupView()); return; }
+  if (!P.session) { mount(root, P.recap ? recapView() : setupView()); return; }
   mount(root, h('div.practice', tableView(), sideView()));
 }
 
@@ -127,7 +129,8 @@ function setupView() {
   const level = LEVELS.find((l) => l.value === c.level);
   const chipEV = c.drill === 'bb50' || (c.format === 'vanilla' && c.stage === '100');
   const t = c.drill === 'target' ? P.program?.spots[0] : null; // spot opened from Leakfinder
-  const mix = c.drill === 'mix';
+  const tour = c.drill === 'tournament';
+  const mix = c.drill === 'mix' || tour; // no spot to choose
   return h('div.setup',
     h('div.setup-head', h('h1', 'Entraînement'), h('p.muted', 'Choisis un exercice, joue le spot et compare ton choix à la stratégie. La référence est la même que dans Étude : tes charts quand il y en a un pour le spot, sinon le modèle RaiseMyPoker.')),
     t ? h('section.panel.target-spot',
@@ -141,7 +144,8 @@ function setupView() {
     }, h('span.drill-icon', { 'aria-hidden': 'true' }, d.icon), h('strong', d.name), h('span.muted.small', d.desc), h('span.pill', d.mode === 'full' ? 'Main complète' : d.mode === 'mix' ? 'Tout au hasard' : 'Spot unique')))),
     h('div.panel.setup-opts',
       field('Difficulté', h('div', Segmented('Difficulté', LEVELS.map(({ value, label }) => ({ value, label })), c.level, set('level')), h('p.small.muted', level.desc))),
-      mix ? field('Spots', h('p.small.muted', 'Tout est tiré au hasard à chaque main : le type de spot (sur 10 mains : 2 ouvertures, 2 face à un open, 1 défense BB, 1 face à un 3-bet, 1 BTN vs BB au flop, 1 postflop, 1 multiway, 1 main complète), ta position, le vilain, le stack, la taille d\'open, le format et le field.')) : null,
+      tour ? tourFields(c, field) : null,
+      c.drill === 'mix' ? field('Spots', h('p.small.muted', 'Tout est tiré au hasard à chaque main : le type de spot (sur 10 mains : 2 ouvertures, 2 face à un open, 1 défense BB, 1 face à un 3-bet, 1 BTN vs BB au flop, 1 postflop, 1 multiway, 1 main complète), ta position, le vilain, le stack, la taille d\'open, le format et le field.')) : null,
       t || mix ? null : field('Ta position', Segmented('Position', [{ value: 'any', label: 'Toutes' }, ...drill.heroes.map((p) => ({ value: p, label: POS[p] }))], c.hero, set('hero'))),
       t || mix ? null : field('Position du vilain', villains
         ? h('div', Segmented('Position du vilain', [{ value: 'any', label: 'Toutes' }, ...villains.map((p) => ({ value: p, label: POS[p] }))], c.villain, set('villain')),
@@ -154,7 +158,7 @@ function setupView() {
         c.cover !== 'equal' && chipEV ? h('p.small.muted', 'En Vanilla au début du tournoi, couvrir ou être couvert ne change pas la stratégie (pas d\'ICM, pas de prime). Choisis KO ou un field plus avancé pour voir la différence.') : null)),
       t ? field('Spot', h('p.small.muted', 'Position, vilain, stack, taille d\'open et format : ceux du spot de Leakfinder.')) : c.drill === 'bb50' ? field('Profondeur', h('div', Segmented('Profondeur', [50, 25, 20].map((d) => ({ value: d, label: d + 'bb' })), bbDrill(c).stack, (v) => { c.bbDepth = v; c.villain = 'any'; render(); }),
         h('p.small.muted', `${bbDrill(c).stack}bb, ${bbDrill(c).note}, Vanilla en début de tournoi : les réglages de tes charts.${bbDrill(c).stack === 20 ? ' À 20bb, tu as des charts BB contre LJ et HJ.' : ''}`))) : null,
-      t || mix || c.drill === 'bb50' ? null : field('Format', Segmented('Format', [{ value: 'vanilla', label: 'Vanilla' }, { value: 'ko', label: 'KO (bounty)' }], c.format, set('format'))),
+      t || c.drill === 'mix' || c.drill === 'bb50' ? null : field('Format', Segmented('Format', [{ value: 'vanilla', label: 'Vanilla' }, { value: 'ko', label: 'KO (bounty)' }], c.format, set('format'))),
       t || mix || c.drill === 'bb50' ? null : field('Field restant', Segmented('Field restant', FIELD_STAGES.map(([value, label]) => ({ value, label })), c.stage, set('stage'))),
       c.drill === 'full' ? field('Multiway', h('label.check', h('input', { type: 'checkbox', checked: c.multiway, on: { change: (e) => { c.multiway = e.target.checked; } } }), ' Autoriser les coups à 3 joueurs ou plus')) : null,
       t || mix || c.drill === 'bb50' ? null : field('Stack effectif', h('label.pick-field', h('select', { 'aria-label': 'Stack effectif', on: { change: (e) => { c.stack = +e.target.value; } } },
@@ -165,10 +169,12 @@ function setupView() {
       field('Temps par décision', Segmented('Timebank', [{ value: 0, label: 'Illimité' }, { value: 7, label: '7s' }, { value: 15, label: '15s' }, { value: 25, label: '25s' }], c.timebank, set('timebank'))),
       field('S\'arrêter après', Segmented('Pause', [{ value: 'always', label: 'Chaque décision' }, { value: 'mistakes', label: 'Les erreurs seulement' }], c.pause, set('pause'))),
       field('', h('label.check', h('input', { type: 'checkbox', checked: c.autoNext, on: { change: (e) => { c.autoNext = e.target.checked; } } }), ' Distribuer la main suivante automatiquement')),
-      h('div.row.end', h('button.btn.primary.lg', { type: 'button', disabled: clash, on: { click: startSession } }, 'Commencer la session'))));
+      h('div.row.end', h('button.btn.primary.lg', { type: 'button', disabled: clash, on: { click: startSession } }, tour ? 'Commencer le tournoi' : 'Commencer la session'))));
 }
 
 function startSession() {
+  P.recap = null;
+  P.tour = P.cfg.drill === 'tournament' ? createTournament({ players: P.cfg.tourPlayers, hands: P.cfg.tourHands, ko: P.cfg.format === 'ko' }) : null;
   P.session = {
     id: uid(), startedAt: new Date().toISOString(), drill: P.cfg.drill, config: { ...P.cfg },
     hands: 0, mixBag: [], decisionsCount: 0, mistakes: 0, scoreSum: 0, evLoss: 0, decisions: [], handsLog: [], combo: 0, xp: 0,
@@ -181,6 +187,7 @@ function startSession() {
 // blocks of HANDS_PER_SPOT hands) or all the spots to fix at random.
 export function startProgram({ slotId, spots, random, until }) {
   if (P.session) endSession(true);
+  P.recap = null;
   P.program = { slotId, spots, random, until, prevDrill: SPOT_DRILLS.has(P.cfg.drill) ? 'rfi' : P.cfg.drill };
   P.cfg = { ...P.cfg, drill: 'program', hero: 'any', villain: 'any' };
   startSession();
@@ -189,6 +196,7 @@ export function startProgram({ slotId, spots, random, until }) {
 // Leakfinder « Étudier »: preload one spot; the session starts from the setup screen.
 export function prepareSpot(target) {
   if (P.session) endSession(true);
+  P.recap = null;
   P.program = { slotId: null, spots: [target], random: false, prevDrill: SPOT_DRILLS.has(P.cfg.drill) ? 'rfi' : P.cfg.drill };
   P.cfg = { ...P.cfg, drill: 'target', hero: 'any', villain: 'any' };
 }
@@ -196,6 +204,9 @@ export function prepareSpot(target) {
 function endSession(quiet = false) {
   stopTimer();
   const s = P.session;
+  const t = P.tour;
+  const report = t && tournamentReport(s?.decisions || []);
+  if (t && s) s.tour = { players: t.players, ko: t.ko, place: t.done?.place ?? t.left, prize: t.done?.total ?? 0, abandoned: !t.done, note: report.note, level: report.level };
   if (s && s.decisionsCount) {
     saveSession({ ...s, endedAt: new Date().toISOString() });
     celebrate({ badges: recordSession(s) });
@@ -207,7 +218,9 @@ function endSession(quiet = false) {
   }
   const had = s?.decisionsCount;
   P.session = null; P.hand = null; P.feedback = null;
+  P.tour = null;
   if (quiet) return;
+  if (t) { P.recap = { t, report }; render(); return; }
   if (had) location.hash = '#/stats'; else render();
 }
 
@@ -371,6 +384,7 @@ function spotLine(id, c, st, hero, vil) {
 
 function dealHand() {
   stopTimer();
+  if (P.tour) { dealTournamentHand(); return; }
   // Spots aléatoires: the next spot of the shuffled bag, with random settings.
   let c = P.cfg;
   if (c.drill === 'mix') {
@@ -501,8 +515,9 @@ function finishHand() {
       cfg: { stack: st.cfg.stack, ko: !!st.cfg.ko, stage: st.cfg.stage, multiway: !!st.cfg.multiway },
     });
   }
+  if (hand.tour) settleTournamentHand(hand);
   if (P.session.decisionsCount) saveSession({ ...P.session }); // no empty session in Progression
-  if (P.cfg.autoNext && !P.feedback?.pausing) setTimeout(() => { if (P.hand === hand) dealHand(); }, 1400);
+  if (P.cfg.autoNext && !P.feedback?.pausing && !P.tour?.done) setTimeout(() => { if (P.hand === hand) dealHand(); }, 1400);
 }
 
 // ---------- decisions ----------
@@ -643,7 +658,7 @@ function heroAct(k, timedOut = false) {
   const labels = node.actions.map((a) => actionLabel(st, a, units));
   const rec = {
     t: new Date().toISOString(), drill: hand.drill, pos: POS[hand.hero], hand: comboStr(i), board: st.board.map(cardStr).join(''),
-    street: STREETS[st.street], stack: st.cfg.stack, spot: practiceSpotKey(st), chosen: labels[k], best: labels[g.bestK], grade: g.grade, score: g.score, evLoss: g.loss, pot: pot(st),
+    street: STREETS[st.street], stack: st.cfg.stack, spot: hand.tour ? null : practiceSpotKey(st), tags: hand.tour && decisionTags(st, P.tour, hand.tour), chosen: labels[k], best: labels[g.bestK], grade: g.grade, score: g.score, evLoss: g.loss, pot: pot(st),
     freqs: node.actions.map((a, j) => ({ label: labels[j], role: actionRole(st, a), f: g.f[j] })), timedOut,
     why: explain(node, i),
     // Study can't replay multiway raised pots, so those get no link.
@@ -688,8 +703,9 @@ function tableView() {
   // st.street already moved on while the next card waits to be dealt.
   const street = st.needBoard ? st.street - 1 : st.street;
   const showAll = hand.over && (hand.showdown || hand.mode === 'spot');
-  const seats = POS.map((_, k) => {
+  const seats = POS.flatMap((_, k) => {
     const p = (hand.hero + k) % 6;
+    if (hand.tour && hand.tour.seats[p] == null) return []; // empty seat at a short table
     const [x, y] = SEAT_SPOTS[k];
     const folded = st.folded[p];
     const cards = hand.hands[p];
@@ -701,7 +717,7 @@ function tableView() {
     const villain = p !== hand.hero && !folded;
     return h('div.seat' + (folded ? '.folded' : '') + (st.toAct === p && !hand.over && !st.needBoard ? '.acting' : '') + (p === hand.hero ? '.hero' : '') + (villain ? '.villain' : ''), { style: { left: x + '%', top: y + '%' } },
       h('div.seat-cards', folded ? null : (faceUp && cards ? cards.map((c) => PlayingCard(c, p === hand.hero ? 'lg' : 'sm')) : [PlayingCard(null, 'sm'), PlayingCard(null, 'sm')])),
-      h('div.seat-plate', h('strong', POS[p]), h('span.mono', num(remaining(st, p)) + 'bb'), p === 3 ? h('span.dealer', { title: 'Donneur' }, 'D') : null),
+      h('div.seat-plate', h('strong', POS[p]), h('span.mono', num(hand.tour ? Math.max(0, hand.tour.stacks[p] - realBet(st.invested[p], hand.tour.scale) - (p === 5 ? anteOf(st.cfg) : 0)) : remaining(st, p)) + 'bb'), hand.tour?.bounties[p] ? h('span.seat-bounty', { title: 'Prime' }, '🎯 ' + euro(hand.tour.bounties[p])) : null, p === 3 ? h('span.dealer', { title: 'Donneur' }, 'D') : null),
       last ? h('div.seat-action', { style: { '--c': `var(--act-${role})` } }, last.label) : null,
       bet > 0 ? h('div.bet-chip', num(bet) + 'bb') : null);
   });
@@ -722,7 +738,7 @@ function tableView() {
       bar = node.actions.map((a, k) => h('button.act.big', { type: 'button', style: { '--c': `var(--act-${actionRole(st, a)})` }, on: { click: () => heroAct(k) } }, actionLabel(st, a, units), h('kbd', String(k + 1))));
     }
   } else if (P.feedback?.pausing || hand.over) {
-    bar = [h('button.btn.primary.lg', { type: 'button', on: { click: continueAfterFeedback } }, hand.over || hand.mode === 'spot' ? 'Main suivante' : 'Continuer', h('kbd', 'Espace'))];
+    bar = [h('button.btn.primary.lg', { type: 'button', on: { click: continueAfterFeedback } }, P.tour?.done && hand.over ? 'Voir le résultat' : hand.over || hand.mode === 'spot' ? 'Main suivante' : 'Continuer', h('kbd', 'Espace'))];
   } else bar = [h('span.muted', 'Les autres joueurs réfléchissent…')];
 
   return h('section.table-area', { 'aria-label': 'Table de poker' },
@@ -731,7 +747,8 @@ function tableView() {
       st.cfg.big != null ? h('span.pill', 'Tu couvres') : st.cfg.short != null ? h('span.pill', 'Tu es couvert') : null,
       hand.rng ? h('span.dice', { title: 'RNG roll' }, '🎲 ' + hand.rng) : null,
       P.cfg.timebank && myTurn ? h('span.timer', P.timeLeft + 's') : null,
-      h('span.grow'), h('button.btn.ghost.sm', { type: 'button', on: { click: () => endSession() } }, 'Terminer la session')),
+      h('span.grow'), h('button.btn.ghost.sm', { type: 'button', on: { click: () => endSession() } }, P.tour ? 'Abandonner le tournoi' : 'Terminer la session')),
+    P.tour ? tourHud(P.tour) : null,
     h('div.felt-wrap', h('div.felt',
       h('div.felt-center', h('div.board', st.board.map((c) => PlayingCard(c, 'md'))), h('div.pot', 'Pot ', h('strong', num(pot(st)) + 'bb')),
         hand.result ? h('div.result', hand.result) : null),
@@ -802,3 +819,107 @@ export function practiceKey(e) {
 
 export const practiceActive = () => !!P.session;
 export function leavePractice() { stopTimer(); }
+
+// ---------- tournament ----------
+const euro = (x) => (Number.isFinite(x) ? x.toFixed(x >= 100 || x === Math.round(x) ? 0 : 2).replace('.', ',') + ' €' : '–');
+const clampInt = (v, lo, hi, dflt) => { const n = Math.round(+v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt; };
+
+function tourFields(c, field) {
+  const ko = c.format === 'ko';
+  const pool = c.tourPlayers * BUYIN * (ko ? 0.5 : 1);
+  const ladder = prizeLadder(c.tourPlayers, pool);
+  const number = (label, key, lo, hi) => h('input.text', {
+    type: 'number', min: lo, max: hi, value: c[key], 'aria-label': label,
+    on: { change: (e) => { c[key] = clampInt(e.target.value, lo, hi, c[key]); render(); } },
+  });
+  return [
+    field('Nombre de joueurs', number('Nombre de joueurs', 'tourPlayers', 2, 5000)),
+    field('Mains à jouer', h('div', number('Mains à jouer', 'tourHands', 5, 500),
+      h('p.small.muted', 'Le tournoi est calé sur ce nombre de mains : le field se réduit et les blindes montent pour arriver à la fin. Si tu es encore là à la dernière main, les joueurs restants font un accord à l\'ICM.'))),
+    field('Prize pool', h('p.small.muted', `Buy-in ${BUYIN} € · ${euro(pool)} au prize pool${ko ? ` et ${euro(pool)} en primes` : ''} · ${ladder.length} places payées · 1er ${euro(ladder[0])}, dernière place payée ${euro(ladder[ladder.length - 1])}. Tapis de départ : 50bb, ante de la BB dès la première main.`)),
+  ];
+}
+
+function dealTournamentHand() {
+  P.feedback = null;
+  const t = P.tour;
+  const deal = t.done ? null : nextHand(t);
+  if (!deal) { endSession(); return; }
+  const deck = shuffledDeck();
+  const hands = Array(6).fill(null);
+  for (let p = 0; p < 6; p++) hands[p] = [deck.pop(), deck.pop()].sort((a, b) => b - a);
+  const st = foldTo(initialState(deal.cfg), deal.live[0]); // the empty seats of a short table
+  const bounties = deal.seats.map((who) => (who == null || who < 0 ? 0 : t.table[who].bounty));
+  P.hand = { hero: deal.hero, hands, boardCards: deck.slice(0, 5), st, decisions: [], over: false, mode: 'full', result: null, drill: 'tournament', tour: { ...deal, bounties } };
+  P.session.hands++;
+  advance();
+}
+
+function settleTournamentHand(hand) {
+  const t = P.tour;
+  const r = settleHand(t, hand.st, hand.tour, hand.hands, hand.boardCards);
+  const net = r.net > 0.05 ? `+${num(r.net)}bb` : r.net < -0.05 ? `${num(r.net).replace('-', '−')}bb` : '';
+  const parts = [hand.result, net];
+  if (r.bounty) parts.push(`🎯 prime +${euro(r.bounty)}`);
+  if (r.out) parts.push(`${r.out} éliminé${r.out > 1 ? 's' : ''} à ta table`);
+  if (r.heroOut) parts.push('Tu es éliminé !');
+  else if (t.done) parts.push(t.done.place === 1 && !t.done.deal ? 'Tu gagnes le tournoi !' : 'Dernière main jouée');
+  hand.result = parts.filter(Boolean).join(' · ');
+}
+
+function tourHud(t) {
+  const paid = t.ladder.length;
+  const toMoney = t.left - paid;
+  const bubble = toMoney > 0 && toMoney <= Math.max(3, paid * 0.15);
+  const deal = P.hand?.tour;
+  const item = (label, value) => h('div.tour-item', h('span.small.muted', label), h('strong', value));
+  return h('section.tour-hud' + (bubble ? '.bubble' : ''), { 'aria-label': 'Tournoi' },
+    item('Joueurs', `${t.left} / ${t.players}`),
+    item('Main', `${t.hand} / ${t.hands}`),
+    item('Blindes', `Niv. ${t.level} · ${t.bb / 2}/${t.bb} · ante BB ${t.bb}`),
+    item('Ton tapis', `${num(t.hero.chips / t.bb)}bb`),
+    item('Moyenne', `${num(t.avg / t.bb)}bb`),
+    item('Prize pool', `${euro(t.pool)} · 1er ${euro(t.ladder[0])}`),
+    t.ko ? item('Primes', `+${euro(t.hero.won)} · ta tête ${euro(t.hero.head)}`) : null,
+    h('div.tour-status',
+      bubble ? `🫧 BULLE : plus que ${toMoney} joueur${toMoney > 1 ? 's' : ''} avant l'argent (${paid} payés)`
+        : toMoney > 0 ? `${toMoney} joueurs avant l'argent (${paid} payés, min-cash ${euro(t.ladder[paid - 1])})`
+          : `💰 Dans l'argent : ${euro(t.ladder[t.left - 1])} assurés${t.left > 1 ? `, prochain palier ${euro(t.ladder[t.left - 2])}` : ''}`,
+      deal?.cfg.bf > 1 ? ` · ICM : un jeton perdu vaut ${num(deal.cfg.bf, 2).replace('.', ',')} jeton gagné` : '',
+      deal && deal.scale < 0.99 ? ` · joué comme un tapis de ${deal.cfg.stack}bb` : ''));
+}
+
+function recapView() {
+  const { t, report: r } = P.recap;
+  const d = t.done;
+  const place = d?.place ?? t.left;
+  const total = d?.total ?? 0;
+  const line = (c) => h('li', h('strong', c.name), h('span.small.muted', ` · ${c.n} décision${c.n > 1 ? 's' : ''}, score ${pct(Math.max(0, c.avg), 0)}, ${c.errors} erreur${c.errors > 1 ? 's' : ''}`),
+    c.avg < 0.6 ? h('div.small', c.tight > c.loose ? `Plutôt trop serré. ${c.tip}` : c.loose > c.tight ? `Plutôt trop large. ${c.tip}` : c.tip) : null);
+  const tendency = r.tight > r.loose * 1.5 ? `Tendance : trop serré (${r.tight} folds de trop, ${r.loose} coups joués de trop).`
+    : r.loose > r.tight * 1.5 ? `Tendance : trop large (${r.loose} coups joués de trop, ${r.tight} folds de trop).`
+      : `Pas de tendance nette : ${r.tight} folds de trop, ${r.loose} coups joués de trop.`;
+  return h('div.setup.recap',
+    h('div.setup-head', h('h1', '🏆 Fin du tournoi'),
+      h('p.muted', !d ? 'Tournoi abandonné.' : d.deal ? 'Dernière main jouée : accord à l\'ICM entre les joueurs restants.' : place === 1 ? 'Tu as gagné le tournoi !' : 'Tu as été éliminé.')),
+    h('div.stats-row.wide',
+      StatTile('Note', r.n ? `${String(r.note).replace('.', ',')} / 20` : '–', r.level ? `Niveau : ${r.level}` : 'Trop peu de décisions pour juger'),
+      StatTile('Place', `${place} / ${t.players}`, d && place <= t.ladder.length ? 'Dans l\'argent' : 'Hors de l\'argent'),
+      StatTile('Gains', euro(total), `Buy-in ${BUYIN} € · bilan ${total >= BUYIN ? '+' : '−'}${euro(Math.abs(total - BUYIN))}`),
+      StatTile('Décisions', r.n, `${r.errors} erreur${r.errors > 1 ? 's' : ''} · EV perdue ${num(r.ev, 1)}bb`),
+      t.ko ? StatTile('Primes', euro(t.hero.won), `${t.hero.ko} élimination${t.hero.ko > 1 ? 's' : ''}`) : null),
+    h('p.small.muted', 'La note juge uniquement tes décisions, comparées à la stratégie de l\'Étude. Ni les cartes ni ta place ne comptent : on peut bien jouer et sortir tôt.'),
+    r.tight || r.loose ? h('p', tendency) : null,
+    h('div.coach-grid',
+      h('section.panel.coach.coach-strong', h('div.panel-title', 'Ce que tu as bien fait'),
+        r.strong.length ? h('ul.recap-list', r.strong.map(line)) : h('p.muted.small', 'Pas de point fort net sur ce tournoi (il faut au moins 3 décisions dans une même catégorie).')),
+      h('section.panel.coach.coach-weak', h('div.panel-title', 'À travailler'),
+        r.weak.length ? h('ul.recap-list', r.weak.map(line)) : h('p.muted.small', 'Pas de catégorie vraiment faible sur ce tournoi.'))),
+    r.worst.length ? h('section.panel', h('div.panel-title', 'Tes plus grosses erreurs'),
+      h('ol.recap-worst', r.worst.map((x) => h('li',
+        h('div', h('strong.mono', x.hand), ` ${x.pos} · ${x.street}${x.board ? ' · ' + x.board : ''} : tu as joué `, h('strong', x.chosen), ', le meilleur était ', h('strong', x.best), x.evLoss > 0.005 ? ` (−${num(x.evLoss, 2)}bb)` : ''),
+        x.why ? h('p.small.why', x.why) : null)))) : null,
+    h('div.row.end.gap',
+      h('a.btn.ghost', { href: '#/stats' }, 'Voir la progression'),
+      h('button.btn.primary.lg', { type: 'button', on: { click: () => { P.recap = null; render(); } } }, 'Nouveau tournoi')));
+}

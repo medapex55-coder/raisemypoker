@@ -641,3 +641,12 @@ h1 { font-size: 26px; }
 .seat.acting .seat-plate { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent), 0 0 18px var(--accent); }
 .seat.folded { opacity: .35; }
 .seat-action { background: var(--c); color: #fff; font: 900 clamp(11px, 1.2vw, 15px) var(--font-sans, inherit); letter-spacing: .02em; text-transform: uppercase; padding: 3px 10px; border-radius: var(--r-pill); box-shadow: 0 2px 8px rgba(0, 0, 0, .45); white-space: nowrap; }
+
+/* ---- tournament ---- */
+.tour-hud { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); padding: var(--s2) var(--s3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); }
+.tour-hud.bubble { border: 2px solid var(--warning); box-shadow: 0 0 14px color-mix(in srgb, var(--warning) 45%, transparent); }
+.tour-item { display: flex; flex-direction: column; }
+.tour-status { flex-basis: 100%; font-weight: 700; font-size: var(--fs-sm); }
+.seat-bounty { font: 700 var(--fs-xs) var(--font-mono); color: var(--warning); white-space: nowrap; }
+.recap { display: flex; flex-direction: column; gap: var(--s3); }
+.recap-list, .recap-worst { margin: var(--s2) 0 0; padding-left: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }

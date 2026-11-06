@@ -11,7 +11,7 @@
 // leaves alive (node.ix[0], node.ix[1]).
 import { COMBOS } from './cards.js';
 import { evalHand } from './evaluator.js';
-import { legalActions, applyAction, dealBoard, stateKey, actionKey, alive, pot } from './game.js';
+import { legalActions, applyAction, dealBoard, stateKey, actionKey, alive, pot, remaining } from './game.js';
 
 const N = 1326;
 const C0 = Int8Array.from(COMBOS, (c) => c[0]);
@@ -151,7 +151,7 @@ function buildNode(st, ctx, ix) {
 const TURN_BET = 2 / 3;
 function absTurn(st, ctx, ix) {
   const { players, inv0, stats } = ctx;
-  const S = st.cfg.stack;
+
   const base = players.map((p) => st.invested[p]);
   const dead = pot(st) - base[0] - base[1];
   const board = st.board.slice();
@@ -162,7 +162,7 @@ function absTurn(st, ctx, ix) {
   if (st.toAct < 0) return eq([0, 0]); // all-in before the turn: run it out
   function rec(p, add, checked) {
     const toCall = add[1 - p] - add[p];
-    const rem = S - base[p] - add[p];
+    const rem = remaining(st, players[p]) - add[p];
     const actions = [], children = [];
     const go = (type, a2, child) => { actions.push({ type, to: a2[p] }); children.push(child); };
     if (toCall > 0) {

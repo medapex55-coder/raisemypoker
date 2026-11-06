@@ -3,8 +3,8 @@
 // effective stack between the hero and the biggest other stack (at the nearest
 // Study depth, like Leakfinder), and the real
 // bet sizes added as custom sizes of the player who used them (Study's "⋯"
-// sizes) when the engine has nothing close. Antes are left out (the engine
-// plays blinds only) and the hand is played in chip EV.
+// sizes) when the engine has nothing close. The hand's real antes go in the pot, and it is
+// played in chip EV.
 import { initialState, applyAction, legalActions, dealBoard, pot, alive } from '../engine/game.js';
 import { parseCard } from '../engine/cards.js';
 import { seatMap, stackBucket } from './decisions.js';
@@ -22,7 +22,7 @@ export function replayHand(hand) {
   const others = hand.seats.filter((s) => s.name !== hand.hero && s.chips > 0);
   const eff = Math.min(heroSeat.chips, Math.max(...others.map((s) => s.chips))) / hand.bb;
   const stack = stackBucket(eff); // a Study depth, so the decision opens in Study as is
-  const base = { stack, open: stack < 37.5 ? '2' : '2.5', ko: false, stage: '100' };
+  const base = { stack, open: stack < 37.5 ? '2' : '2.5', ko: false, stage: '100', ante: round(((hand.ante || 0) * hand.seats.filter((s) => s.chips > 0).length) / hand.bb, 2) };
   const present = new Set(map.values());
   const players = {};
   const added = new Set();

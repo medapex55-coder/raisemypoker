@@ -7,7 +7,7 @@ import { rangeEquity, weightedMean } from './engine/equity.js';
 import { levelOf, streakOf } from './data/progress.js';
 import { playSessions, abi } from './data/playsessions.js';
 import { planSlots, overlaps } from './data/program.js';
-import { initialState, applyAction, legalActions, foldTo, dealBoard, replay, POS, alive, isIP, stateKey } from './engine/game.js';
+import { initialState, applyAction, legalActions, foldTo, dealBoard, replay, POS, alive, isIP, stateKey, pot, remaining } from './engine/game.js';
 import { solve, createSolver } from './engine/solver.js';
 import { createParallelSolver } from './engine/solver-parallel.js';
 import { addSolution } from './engine/solutions.js';
@@ -15,6 +15,7 @@ import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScal
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
 import { icmEquities, bubbleFactor, requiredEquity } from './engine/icm.js';
 import { gradeDecision } from './ui/practice.js';
+import { prizeLadder, splitPots, createTournament, fieldAt, heroBubbleFactor, tournamentReport, nextHand, settleHand } from './data/tournament.js';
 import { parseFile } from './data/parsers.js';
 import { extractDecisions } from './data/decisions.js';
 import { analyzeDecisions, keyMetric, practiceSpotKey, spotKey, liveAction, spotState } from './data/leaks.js';
@@ -247,7 +248,7 @@ await test('U21', 'stack: 20bb spots use 20bb and big re-raises go all-in', () =
   let st = act(foldTo(initialState(cfg), 3), 'raise'); // BTN opens 2.5
   st = foldTo(st, 5);
   const threeBet = legalActions(st).find((a) => a.type === 'raise' || a.type === 'allin');
-  assert(threeBet.type === 'allin' && threeBet.to === 20, '3-bet becomes a 20bb shove');
+  assert(threeBet.type === 'allin' && threeBet.to === 19, '3-bet becomes a shove: 19bb to go, the ante is already paid');
   st = applyAction(st, threeBet);
   const n = analyze(st);
   assert(n.actions.map((a) => a.type).join() === 'fold,call', 'BTN can only fold or call');
@@ -559,7 +560,7 @@ await test('D11', 'leakfinder: real opens and SB limps are graded with your BB c
   assert(spotState({ sc: 'VL', hp: 3, lp: [0], s: 25, o: 'limp', c: 'AsKd' }).cfg.open === 'limp', 'other limps keep the limp config');
 });
 await test('U39', 'river solver: textbook bluff-catching equilibrium, then Study follows the solution', () => {
-  let st = foldTo(initialState({ stack: 100, open: '2.5' }), 3);
+  let st = foldTo(initialState({ stack: 100, open: '2.5', ante: 0 }), 3); // textbook numbers, no dead money
   st = foldTo(act(st, 'raise'), 5);
   st = act(st, 'call');
   const b = ['As', 'Kd', '7c', '4h', '2s'].map(parseCard);
@@ -601,10 +602,10 @@ await test('U40', 'turn solver: the parallel solver matches the single-thread on
   par.close();
   assert(Math.abs(e1 - e2) < 1e-6 * e1, 'same exploitability: ' + e1 + ' vs ' + e2);
 });
-await test('U41', 'push/fold Nash at 10bb: SB shoves about 58%, BB calls about 37%; Study and Practice use it', () => {
+await test('U41', 'push/fold Nash at 10bb with a BB ante: SB shoves about 61%, BB calls about 54%; Study and Practice use it', () => {
   const nash = pushFoldNash(10);
   const sb = comboShare(nash.push[4]), bb = comboShare(nash.call[4][5]);
-  assert(Math.abs(sb - 0.58) < 0.02 && Math.abs(bb - 0.37) < 0.02, 'SB ' + sb + ', BB ' + bb);
+  assert(Math.abs(sb - 0.61) < 0.02 && Math.abs(bb - 0.54) < 0.02, 'SB ' + sb + ', BB ' + bb);
   assert(comboShare(nash.push[0]) < comboShare(nash.push[3]), 'LJ shoves tighter than the BTN');
   const n = analyze(foldTo(initialState({ stack: 10, open: '2.5' }), 4));
   const f = comboFreqs(n, CLASS_BY_NAME.K2o.combos[0]);
@@ -633,9 +634,9 @@ await test('U43', 'custom postflop raise: a 2.5x size joins the default 3x when 
   st = foldTo(act(st, 'raise'), 5);
   st = act(st, 'call');
   st = dealBoard(st, ['Qc', 'Js', '4d'].map(parseCard));
-  st = act(act(st, 'check'), 'bet'); // BB checks, CO bets 1.5
+  st = act(act(st, 'check'), 'bet'); // BB checks, CO bets 1.8 (a third of the pot, ante included)
   const raises = legalActions(st).filter((a) => a.type === 'raise').map((a) => a.to);
-  assert(raises.join() === '3.8,4.5', 'raises: ' + raises.join());
+  assert(raises.join() === '4.5,5.4', 'raises: ' + raises.join());
   const n = analyze(st);
   assert(n.freqs.length === n.actions.length && [...Array(1326).keys()].every((i) => Math.abs(n.actions.reduce((s, _, k) => s + n.freqs[k][i], 0) - 1) < 1e-4 || n.dead[COMBOS[i][0]] || n.dead[COMBOS[i][1]]), 'strategy sums to 1');
 });
@@ -646,7 +647,7 @@ await test('D12', 'Winamax replayer: link to data path, hand parsed and replayed
   const rep = replayHand(hand);
   assert(rep.cfg.stack === 50 && !rep.unsupported, 'replayed at 50bb');
   const mine = rep.steps.filter((s) => s.hero).map((s) => POS[s.p] + ':' + s.act.type + (s.act.to ? s.act.to : ''));
-  assert(mine.join() === 'BB:call,BB:check,BB:raise7.3,BB:bet15.1,BB:allin25.1', 'hero line: ' + mine.join());
+  assert(/^BB:call,BB:check,BB:raise7.3,BB:bet15.6,BB:allin23.9/.test(mine.join()), 'hero line, the real antes in the pot: ' + mine.join());
 });
 await test('U32', 'play sessions: 10h windows keep a 17h-5h night together; ABI', () => {
   const t = (tid, startedAt, buyin) => ({ tid, startedAt, buyin });
@@ -712,6 +713,55 @@ await test('U45', 'leakfinder: thousands of decisions re-analyse at once, and a 
   const tight = analyzeDecisions(dec);
   setOpenStyle('standard');
   assert(JSON.stringify(tight.spots.map((s) => s.gto)) !== JSON.stringify(first.spots.map((s) => s.gto)), 'open style changes the analysis');
+});
+await test('U46', 'tournament: prizes add up, side pots conserve chips, ICM rises at the bubble, field reaches the end', () => {
+  const lad = prizeLadder(100, 1000);
+  near(lad.reduce((a, b) => a + b, 0), 1000, 1e-6, 'pool paid');
+  assert(lad.length === 15 && lad[0] > lad[14], 'top 15% paid');
+  // A short all-in (10) against two bigger stacks (40): main pot and side pot.
+  const won = splitPots([10, 40, 40, 0, 0, 0], [9, 5, 7, null, null, null]);
+  near(won[0], 30, 1e-9, 'short stack wins the main pot only');
+  near(won[2], 60, 1e-9, 'best of the others wins the side pot');
+  near(won.reduce((a, b) => a + b, 0), 90, 1e-9, 'chips conserved');
+  // Everybody who put the last chips in folded: they go to the player still in.
+  const fold = splitPots([1, 5, 0, 0, 0, 0], [9, null, null, null, null, null]);
+  near(fold[0], 6, 1e-9, 'uncontested');
+  const t = createTournament({ players: 18, hands: 40, ko: false });
+  assert(fieldAt(t, 1) >= 17 && fieldAt(t, 40) === 2, 'field down to 2 on the last hand');
+  const far = createTournament({ players: 1000, hands: 40, ko: false });
+  far.left = 900;
+  assert(heroBubbleFactor(far) < 1.05, 'far from the money: chip EV');
+  const close = createTournament({ players: 18, hands: 40, ko: false });
+  close.left = 4; close.table = close.table.slice(0, 3);
+  assert(heroBubbleFactor(close) > 1.2, `3 paid, 4 left: ${heroBubbleFactor(close)}`);
+});
+await test('U47', 'tournament report: the note follows the decisions, categories sort strengths and leaks', () => {
+  const d = (grade, score, tags, chosen = 'Raise 2', best = 'Raise 2', evLoss = 0) => ({ grade, score, tags, chosen, best, evLoss, hand: 'AKs', pos: 'BTN', street: 'Preflop' });
+  const r = tournamentReport([d('best', 1, ['open']), d('best', 1, ['open']), d('best', 1, ['open']), d('blunder', -1, ['bb'], 'Fold', 'Call 1', 2), d('wrong', -0.3, ['bb'], 'Fold', 'Call 1', 1), d('best', 1, ['postflop'])]);
+  near(r.note, 8.9, 0.1, 'note on 20');
+  assert(r.level === 'Amateur' && r.strong[0].id === 'open' && r.weak[0].id === 'bb', 'level and categories');
+  assert(r.weak[0].tight === 2 && r.worst[0].grade === 'blunder' && r.tight === 2 && r.loose === 0, 'too tight, worst first');
+  assert(tournamentReport([]).level === null, 'no decision, no level');
+});
+await test('U48', 'big blind ante: in the pot, out of the BB stack, won by the main pot, never bet back', () => {
+  const st0 = initialState({ stack: 50, open: '2.5', ko: false, stage: '100' });
+  near(pot(st0), 2.5, 1e-9, 'SB + BB + ante');
+  assert(remaining(st0, 5) === 48 && remaining(st0, 4) === 49.5, 'the ante comes out of the BB stack');
+  const key = stateKey(st0);
+  assert(key !== stateKey(initialState({ stack: 50, open: '2.5', ko: false, stage: '100', ante: 0 })), 'ante in the node key');
+  // SB limps and wins against the BB: 1 + 1 + ante.
+  near(splitPots([0, 0, 0, 0, 1, 1], [null, null, null, null, 9, 5], 1)[4], 3, 1e-9, 'main pot takes the ante');
+  // A real hand: the BB loses blind and ante to a raise, chips stay conserved.
+  const t = createTournament({ players: 6, hands: 10, ko: false });
+  const deal = nextHand(t);
+  const chips = () => t.hero.chips + t.table.reduce((a, o) => a + o.chips, 0);
+  const before = chips();
+  let st = foldTo(initialState(deal.cfg), 3);
+  st = applyAction(st, legalActions(st).find((a) => a.type === 'raise'));
+  st = foldTo(st, 5);
+  st = applyAction(st, legalActions(st).find((a) => a.type === 'fold'));
+  settleHand(t, st, deal, Array(6).fill([0, 1]), [2, 3, 4, 5, 6]);
+  near(chips(), before, 1e-6, 'chips conserved');
 });
 await test('U44', 'off-strategy line (BTN min-raise at 15bb): flagged, range never empty, no NaN', () => {
   let st = foldTo(initialState({ stack: 15, open: '2.5', ko: false, stage: '100', multiway: false }), 3);
@@ -1182,6 +1232,30 @@ await test('F19-H1', 'backup: export then import restores the data, a wrong file
   for (const bad of ['pas du json', '{"app":"autre"}', '{"app":"spotwise-backup","training":"{abîmé"}']) { try { bk.importBackup(bad); } catch { refused++; } }
   assert(refused === 3 && JSON.parse(ls.getItem('gtoc.test')).mark === 1, 'wrong files refused');
   ls.removeItem('gtoc.test'); ls.removeItem('gtoc.data.test');
+});
+await test('F20-H1', 'tournament: setup, table with field and blinds, then a note and a recap at the end', async () => {
+  await load('#/practice');
+  byRole('button', 'Tournoi').click();
+  await sleep(50);
+  const num = (label, v) => { const i = doc().querySelector(`input[aria-label="${label}"]`); i.value = v; i.dispatchEvent(new Event('change', { bubbles: true })); };
+  num('Nombre de joueurs', 18);
+  await sleep(50);
+  num('Mains à jouer', 12);
+  await sleep(50);
+  assert(!doc().querySelector('[aria-label="Position"]') && /3 places payées/.test(doc().querySelector('.setup-opts').textContent), 'prize pool shown, no spot to choose');
+  byRole('button', 'Commencer le tournoi').click();
+  assert(/18/.test(doc().querySelector('.tour-hud').textContent), 'field shown');
+  for (let n = 0; n < 200 && !doc().querySelector('.recap'); n++) {
+    assert(!/NaN|undefined/.test(doc().querySelector('.table-area')?.textContent || ''), 'clean table');
+    const b = doc().querySelector('[aria-label="Tes actions"] button');
+    if (b) b.click();
+    await sleep(60);
+  }
+  const recap = await waitFor(() => doc().querySelector('.recap'), 8000);
+  assert(/Note/.test(recap.textContent) && /\/ 18/.test(recap.textContent) && /Ce que tu as bien fait/.test(recap.textContent), 'recap');
+  byRole('button', 'Nouveau tournoi').click();
+  await sleep(50);
+  assert(doc().querySelector('.setup-opts'), 'back to the setup');
 });
 await test('X01', 'no uncaught errors during flows', () => assert(!errors.length, errors.join('; ')));
 await test('X02', 'every grid cell has an accessible name', async () => {
