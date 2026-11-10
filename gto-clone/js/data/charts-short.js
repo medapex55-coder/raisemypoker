@@ -2,7 +2,7 @@
 // Same layout and codes as charts-50.js, plus:
 // open charts: A all-in, a all-in / limp 50/50, m limp / fold 50/50;
 // BB charts: A all-in, a all-in / call 50/50, j all-in / raise 50/50,
-// q mostly call (or check) with a small raise (15%), n not in the BB's range.
+// q (no longer used: those cells are 50/50, r), n not in the BB's range.
 
 export const OPEN_CHARTS_25 = {
   LJ: [
@@ -165,18 +165,18 @@ export const BB_CHARTS_25 = {
   vsLimp: {
     title: 'BB vs limp SB', raiseLabel: 'Raise 3bb',
     grid: [
-      'RRRRRRRqqKKKK',
-      'RRRRRqKKKKKKK',
-      'RRRqKKKKKKKKK',
-      'RqKRRKKKKKKKK',
+      'RRRRRRRrrKKKK',
+      'RRRRRrKKKKKKK',
+      'RRRrKKKKKKKKK',
+      'RrKRRKKKKKKKK',
       'RKKKRKKKKKKKK',
       'jKKKKRKKKKKKR',
       'jKKKKKRKKKKKR',
       'jKKKKKKRKKKKR',
       'KKKKKKKKjKKKR',
-      'KKKKRRRKKAKKR',
-      'KKKRRRRKKKAKR',
-      'AKKRRRRKKKKAR',
+      'KKKKRRRKKAKKK',
+      'KKKRRRRKKKAKK',
+      'AKKRRRRKKKKAK',
       'AKRRRRRKKKKKA',
     ],
   },
@@ -223,13 +223,13 @@ export const BB_CHARTS_25 = {
     title: 'BB vs open SB', raiseLabel: '3bet',
     grid: [
       'rRRrCCCCCCCCC',
-      'jRCCCCCCCCCCC',
+      'jrCCCCCCCCCCC',
       'ACRCCCCCCCCCC',
       'ACCRCCCCCCCCC',
       'ACCCRCCCCCCCC',
       'aCCCCaCCCCCCC',
       'aCCCCCaCCCCCC',
-      'CCCqCCCaCCCCc',
+      'CCCrCCCaCCCCc',
       'CCRFFFFCACCCC',
       'CCcFFFFFCACCC',
       'aCFFFFFFFCACC',
@@ -284,7 +284,7 @@ export const BB_CHARTS_25 = {
       'CCCCCACCCCCCC',
       'CCCCCCACCCCCC',
       'ACCCCCCACCCCC',
-      'ACCcFcCCACCCC',
+      'ACCcccCCACCCC',
       'ACCcFFcCCACCC',
       'ABCFFFFFCCACC',
       'ACBFFFFFFccAC',
@@ -324,7 +324,7 @@ export const BB_CHARTS_20 = {
       'CCCCCCACCCCCC',
       'ACCCCCCACCCCC',
       'CCcFFcCCACCCC',
-      'CCcFFFFcCACCC',
+      'CCcFFFFCCACCC',
       'CCcFFFFFcCACC',
       'CCFFFFFFFccAC',
       'BcFFFFFFFFFFA',

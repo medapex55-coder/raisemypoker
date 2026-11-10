@@ -535,7 +535,24 @@ await test('U37', '25bb and 20bb charts: 2bb opens, SB 3bb, all-ins from the cha
   st = act(st, 'raise'); // BB raises to 3
   assert(f(act(st, 'raise'), 'AKs').allin === 1 && f(act(st, 'raise'), 'KK').call === 1, 'vs limp-reraise 25bb: AKs all-in, KK call');
   assert(f(act(st, 'allin'), 'AA').call === 1 && f(act(st, 'allin'), 'A6s').fold === 1, 'vs limp-shove 25bb: AA call, A6s fold');
-  assert(f(vsOpen({ stack: 25, open: '2.5' }, 0), 'AQo').allin !== 1, 'no 25bb BB chart with a 2.5bb open');
+  assert(f(vsOpen({ stack: 25, open: '2.5' }, 0), 'AQo').allin === 1, 'a 2.5bb open plays the same 25bb BB chart');
+  assert(f(vsOpen({ stack: 50, open: '2' }, 0), 'K7s').raise === 1, 'a 2bb open plays the same 50bb BB chart');
+});
+await test('U49', '100bb BTN vs an LJ or HJ open: your charts, for a 2 or 2.5bb open', () => {
+  const f = (st, name) => {
+    const n = analyze(st);
+    const fr = comboFreqs(n, CLASS_BY_NAME[name].combos[0]);
+    return Object.fromEntries(n.actions.map((a, k) => [a.type, fr[k]]));
+  };
+  for (const open of ['2', '2.5']) {
+    const vs = (o) => foldTo(act(foldTo(initialState({ stack: 100, open }), o), 'raise'), 3);
+    assert(bbChart(vs(0))?.title === 'BTN vs open LJ' && bbChart(vs(1))?.title === 'BTN vs open HJ', 'chart titles, open ' + open);
+    const lj = f(vs(0), 'AQo'), hj = f(vs(1), 'AQo');
+    assert(Math.abs(lj.raise - 0.5) < 1e-9 && Math.abs(lj.call - 0.5) < 1e-9 && hj.call === 1, 'AQo: 3bet/call vs LJ, call vs HJ');
+    assert(f(vs(0), 'A5s').raise === 1 && f(vs(0), '22').call === 1 && f(vs(0), 'K5s').fold === 1, 'A5s 3bet light, 22 call, K5s fold');
+  }
+  assert(!bbChart(foldTo(act(foldTo(initialState(), 2), 'raise'), 3)), 'no BTN vs CO chart');
+  assert(!bbChart(foldTo(act(foldTo(initialState({ stack: 50, open: '2.5' }), 0), 'raise'), 3)), 'no BTN chart at 50bb');
 });
 await test('U38', 'between chart depths the two charts are blended hand by hand', () => {
   const f = (st, name) => {

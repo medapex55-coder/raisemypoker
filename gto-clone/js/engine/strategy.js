@@ -10,6 +10,7 @@ import { hashStr } from './rng.js';
 import { OPEN_CHARTS } from '../data/open-charts.js';
 import { OPEN_CHARTS_50, BB_CHARTS_50, BB_CODES } from '../data/charts-50.js';
 import { OPEN_CHARTS_25, OPEN_CHARTS_20, BB_CHARTS_25, BB_CHARTS_20 } from '../data/charts-short.js';
+import { VS_OPEN_100 } from '../data/charts-100.js';
 import { stageBubbleFactor } from './icm.js';
 import { solutionAt, onSolution } from './solutions.js';
 import { pushFoldNash, PUSH_FOLD_STACK } from './pushfold.js';
@@ -99,8 +100,11 @@ export function chartBlend(stack) {
   return null;
 }
 const OPEN_BY_DEPTH = { 20: OPEN_CHARTS_20, 25: OPEN_CHARTS_25, 50: OPEN_CHARTS_50, 100: OPEN_CHARTS };
-// The BB's charts at each depth, and the open size they are made for.
-const BB_BY_DEPTH = { 20: { open: '2', charts: BB_CHARTS_20 }, 25: { open: '2', charts: BB_CHARTS_25 }, 50: { open: '2.5', charts: BB_CHARTS_50 } };
+// The BB's charts at each depth (a 2bb and a 2.5bb open play the same charts).
+const BB_BY_DEPTH = { 20: { charts: BB_CHARTS_20 }, 25: { charts: BB_CHARTS_25 }, 50: { charts: BB_CHARTS_50 } };
+// The other seats' charts facing a single open: { [defender]: { [opener]: chart } }.
+const DEF_BY_DEPTH = { 100: VS_OPEN_100 };
+const chartOpen = (open) => open === '2' || open === '2.5';
 
 export function chartCodeAt(p, cls, depth) {
   const ch = OPEN_BY_DEPTH[depth][POS[p]];
@@ -134,24 +138,33 @@ function bbChartAt(st, depth) {
 
 // The BB's chart(s) for this spot, or null: { title, raiseLabel, parts:
 // [{ chart, depth, w }], blend }. 6-max, chip-EV spots only (with bounties or
-// ICM pressure the model's adjusted ranges apply). One chart at its open size
-// (2.5bb at 50bb, 2bb at 25 and 20bb) from 0.8x to 1.4x its depth; between 25
-// and 50bb the two charts blended, for a 2 or 2.5bb open, when both cover the spot.
+// ICM pressure the model's adjusted ranges apply), for a 2 or 2.5bb open. One
+// chart from 0.8x to 1.4x its depth; between 25 and 50bb the two charts blended,
+// when both cover the spot. Other seats: their chart facing a single open,
+// everyone between folded (100bb: BTN vs LJ, HJ).
 export function bbChart(st) {
   const { cfg } = st;
-  if (st.street !== 0 || st.toAct !== 5 || isHU(st)) return null;
+  if (st.street !== 0 || st.toAct < 0 || isHU(st) || !chartOpen(cfg.open)) return null;
   if (Math.abs(rangeScale(cfg) - 1) > 0.005) return null;
+  if (st.toAct !== 5) return defChart(st);
   const b = chartBlend(cfg.stack);
   if (b && b.hi === 50) {
-    if (cfg.open !== '2' && cfg.open !== '2.5') return null;
     const lo = bbChartAt(st, 25), hi = bbChartAt(st, 50);
     if (!lo || !hi) return null;
     const raiseLabel = lo.raiseLabel === hi.raiseLabel ? lo.raiseLabel : 'Raise';
     return { title: hi.title, raiseLabel, blend: b, parts: [{ chart: lo, depth: 25, w: 1 - b.t }, { chart: hi, depth: 50, w: b.t }] };
   }
   const depth = chartDepth(cfg.stack);
-  if (!BB_BY_DEPTH[depth] || cfg.open !== BB_BY_DEPTH[depth].open || !chartFits(cfg.stack)) return null;
+  if (!BB_BY_DEPTH[depth] || !chartFits(cfg.stack)) return null;
   const ch = bbChartAt(st, depth);
+  return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] } : null;
+}
+function defChart(st) {
+  const p = st.toAct, o = st.lastAggr, depth = chartDepth(st.cfg.stack);
+  const set = DEF_BY_DEPTH[depth]?.[POS[p]];
+  if (!set || !chartFits(st.cfg.stack) || st.raiseLevel !== 1 || st.limpers.length) return null;
+  if (remaining(st, o) <= 0 || !alive(st).every((i) => i === o || i >= p)) return null;
+  const ch = set[POS[o]];
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] } : null;
 }
 // Push/fold equilibrium spots (engine/pushfold.js): 15bb and less, 6-max, chip
