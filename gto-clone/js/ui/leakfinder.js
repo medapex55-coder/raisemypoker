@@ -8,7 +8,8 @@ import {
   analyzeDecisions, prepareSpots, verdict, SCEN, STACK_GROUPS, spotTitle, spotStory, keyMetric, liveAction,
 } from '../data/leaks.js';
 import { spotTarget, trainingDecisions } from '../data/program.js';
-import { prepareSpot } from './practice.js';
+import { prepareSpot, startProgram } from './practice.js';
+import { playSessions } from '../data/playsessions.js';
 
 const filter = { type: 'all', scen: 'all', group: 'all', show: 'all', minN: 1 };
 const open = new Set();
@@ -118,6 +119,7 @@ function statsView() {
   return [
     h('p.muted', 'Tes statistiques calculées sur toutes les mains importées. Vert : dans la zone cible. Jaune : un peu en dehors. Rouge : loin de la cible. Gris : moins de 10 occasions, pas encore fiable.'),
     h('div.row.gap.wrap.filters', typeSelect()),
+    lastSessions(types, getHandRecords().filter((r) => filter.type === 'all' || types.get(r.t) === filter.type)),
     h('section.hud', tabsEl, body),
   ];
 }
@@ -310,4 +312,38 @@ function liveCard(r) {
             h('tbody', r.tournaments.map((t) => h('tr', h('td.mono', t.date ? fmt(new Date(t.date).getTime()) : '–'), h('td', t.name), h('td.mono', t.n), h('td.mono' + (t.mistakes ? '.neg' : ''), t.mistakes))))),
         ] : null,
         h('p.small.tip', m && ['notyet', 'progress'].includes(r.status) ? m.tip : note))));
+}
+
+// ---------- Stats: the last 3 play sessions ----------
+// Sessions as in My Data (tournaments started within 10 hours), each with its
+// numbers and the spots it played badly, ready to train in one click.
+function lastSessions(types, recs) {
+  const tours = getTournaments().filter((t) => filter.type === 'all' || t.type === filter.type);
+  const sessions = playSessions(tours, recs).filter((s) => s.start != null).slice(0, 3);
+  if (!sessions.length) return null;
+  const decisions = trainingDecisions();
+  return h('section.panel.last-sessions', h('div.panel-title', `Tes ${sessions.length > 1 ? sessions.length + ' dernières sessions' : 'dernière session'}`),
+    h('div.coach-grid', sessions.map((s) => {
+      const tids = new Set(s.tours.map((t) => t.tid));
+      const r = results(recs.filter((x) => tids.has(x.t)));
+      const hud = hudTotals(recs.filter((x) => tids.has(x.t)));
+      const rate = (k) => (hud[k]?.opp ? Math.round((hud[k].hit / hud[k].opp) * 100) + ' %' : '–');
+      const { spots } = analyzeDecisions(decisions.filter((d) => tids.has(d.t)));
+      const n = spots.reduce((a, sp) => a + sp.n, 0);
+      const score = n ? spots.reduce((a, sp) => a + sp.score, 0) / n : NaN;
+      // Weak spots first; with few hands, the spots with the most costly mistakes.
+      const toWork = spots.filter((sp) => sp.mistakes && (verdict(sp) === 'weak' || sp.avg < 0.5))
+        .sort((a, b) => order(a) - order(b) || a.avg - b.avg || b.mistakes - a.mistakes).slice(0, 4);
+      return h('div.coach.session-card',
+        h('div.row.between', h('strong', fmt(s.start)), h('span.small.muted', plural(s.tours.length, 'tournoi', 'tournois'))),
+        h('div.small', `${plural(r.hands, 'main', 'mains')} · ${(r.bb100 >= 0 ? '+' : '') + r.bb100.toFixed(1).replace('.', ',')} bb/100 · VPIP ${rate('VPIP')} · PFR ${rate('PFR')} · 3-bet ${rate('3B')}`),
+        h('div.small', n ? `${plural(n, 'décision analysée', 'décisions analysées')} · score ${pct(score, 0)} · ${plural(spots.reduce((a, sp) => a + sp.mistakes, 0), 'erreur', 'erreurs')}` : 'Aucune décision préflop analysée.'),
+        h('div.panel-title', 'Spots à travailler'),
+        toWork.length ? h('ul.small.session-spots', toWork.map((sp) => h('li', h('strong', `${spotTitle(sp)} · ${sp.group}`), ` · ${plural(sp.mistakes, 'erreur', 'erreurs')} sur ${plural(sp.n, 'main', 'mains')}`)))
+          : h('p.small.muted', 'Rien à corriger sur cette session.'),
+        toWork.length ? h('div.row.end', h('button.btn.primary.sm', {
+          type: 'button', title: 'S\'entraîner sur ces spots, 10 mains chacun',
+          on: { click: () => { startProgram({ slotId: null, spots: toWork.map(spotTarget), random: false }); location.hash = '#/practice'; } },
+        }, 'Étudier')) : null);
+    })));
 }

@@ -1257,6 +1257,43 @@ await test('F20-H1', 'tournament: setup, table with field and blinds, then a not
   await sleep(50);
   assert(doc().querySelector('.setup-opts'), 'back to the setup');
 });
+await test('F21-H1', 'leakfinder stats: the last sessions with their numbers and spots, « Étudier » trains them', async () => {
+  const foldAA = (n) => `PokerStars Hand #${5000 + n}: Tournament #555, €4.50+€0.50 EUR Hold'em No Limit - Level II (50/100) - 2026/10/22 21:0${n}:00 CET [2026/10/22 15:0${n}:00 ET]
+Table '555 1' 6-max Seat #3 is the button
+Seat 1: V1 (5000 in chips)
+Seat 2: V2 (5000 in chips)
+Seat 3: Hero (3000 in chips)
+Seat 4: V4 (5000 in chips)
+Seat 5: V5 (5000 in chips)
+Seat 6: V6 (5000 in chips)
+V4: posts small blind 50
+V5: posts big blind 100
+*** HOLE CARDS ***
+Dealt to Hero [Ah Ad]
+V6: folds
+V1: folds
+V2: folds
+Hero: folds
+V4: folds
+Uncalled bet (50) returned to V5
+V5 collected 100 from pot
+*** SUMMARY ***
+Total pot 100 | Rake 0
+`;
+  await load('#/data');
+  const ds = await frame.contentWindow.eval(`import('${new URL('js/data/datastore.js', frame.contentWindow.location.href).href}')`);
+  ds.clearAll();
+  ds.importFiles([{ name: 'h555.txt', text: [1, 2, 3].map(foldAA).join('\n\n') }]);
+  await load('#/leaks');
+  (await waitFor(() => [...doc().querySelectorAll('[aria-label="Vue Leakfinder"] button')].find((b) => b.textContent === 'Stats'))).click();
+  const card = await waitFor(() => doc().querySelector('.last-sessions .session-card'));
+  assert(/3 mains/.test(card.textContent) && /BTN first in/.test(card.textContent) && /3 erreurs/.test(card.textContent), card.textContent.slice(0, 200));
+  card.querySelector('button').click();
+  await waitFor(() => doc().querySelector('[aria-label="Tes actions"] button.act'));
+  assert(frame.contentWindow.location.hash === '#/practice' && doc().querySelector('.seat.hero .seat-plate strong').textContent === 'BTN', 'training on the spot');
+  byRole('button', 'Terminer la session').click();
+  ds.clearAll();
+});
 await test('X01', 'no uncaught errors during flows', () => assert(!errors.length, errors.join('; ')));
 await test('X02', 'every grid cell has an accessible name', async () => {
   await load('#/study');
