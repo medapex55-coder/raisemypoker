@@ -9,10 +9,14 @@ import { mulberry32, hashStr } from '../engine/rng.js';
 const r2 = (x) => Math.round(x * 100) / 100;
 
 // Chips each player put in the pot (antes, blinds, bets), minus uncalled bets.
+// PokerStars writes "Uncalled bet (x) returned"; Winamax doesn't, so when the
+// pot collected is smaller than what went in, the gap is the uncalled part of
+// the last street's top bet, given back to its bettor.
 export function contributions(hand) {
   const c = {};
   const add = (n, x) => { c[n] = (c[n] || 0) + x; };
   for (const p of hand.posts || []) if (p.kind === 'ante') add(p.name, p.amount);
+  let lastSt = null;
   hand.streets.forEach((acts, s) => {
     const st = {};
     if (s === 0) for (const p of hand.posts || []) if (p.kind !== 'ante') st[p.name] = (st[p.name] || 0) + p.amount;
@@ -21,9 +25,24 @@ export function contributions(hand) {
       else if (a.type === 'raise') st[a.name] = a.to;
     }
     for (const n in st) add(n, st[n]);
+    if (acts.length || s === 0) lastSt = st;
   });
   for (const n in hand.returned || {}) add(n, -hand.returned[n]);
+  const collected = Object.values(hand.collected || {}).reduce((a, x) => a + x, 0);
+  const gap = Object.values(c).reduce((a, x) => a + x, 0) - collected;
+  if (collected > 0 && gap > 0 && lastSt) {
+    const bets = Object.entries(lastSt).sort((a, b) => b[1] - a[1]);
+    const over = bets.length ? bets[0][1] - (bets[1]?.[1] || 0) : 0;
+    if (over > 0) add(bets[0][0], -Math.min(over, gap));
+  }
   return c;
+}
+
+// The hero lost every chip in this hand (busted, or out until a re-entry).
+export function heroBusted(hand) {
+  const seat = hand.seats?.find((s) => s.name === hand.hero);
+  if (!seat || !seat.chips) return false;
+  return !(hand.collected?.[hand.hero] > 0) && (contributions(hand)[hand.hero] || 0) >= seat.chips;
 }
 
 // Hero's share of the pot over every runout (ties split). Exact when 1 or 2
@@ -167,7 +186,7 @@ export function handFlags(hand) {
 export function handRecord(hand) {
   if (!hand.hero || !hand.cards) return null;
   const r = handResult(hand);
-  return { h: hand.id, t: hand.tid, at: hand.at || null, n: r.net, e: r.ev, sd: r.sd ? 1 : 0, v: r.v, b: hand.bounty || 0, f: handFlags(hand) };
+  return { h: hand.id, t: hand.tid, at: hand.at || null, n: r.net, e: r.ev, sd: r.sd ? 1 : 0, v: r.v, b: hand.bounty || 0, f: handFlags(hand), ...(heroBusted(hand) ? { x: 1 } : {}) };
 }
 
 // ---------- totals ----------

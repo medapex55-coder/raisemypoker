@@ -311,3 +311,15 @@ export function studyLink(st) {
   const pp = st.cfg.players ? '&pp=' + encodeURIComponent(JSON.stringify(st.cfg.players)) : '';
   return `#/study?s=${st.cfg.stack}&o=${st.cfg.open}${st.cfg.ko ? '&f=ko' : ''}${stage}${pp}${line ? '&l=' + line : ''}`;
 }
+
+// One play session's preflop review, graded with the current charts: score,
+// mistakes, and up to 4 spots to work on (weak spots first, then the ones with
+// the most costly mistakes).
+export function sessionReview(decisions, max = 4) {
+  const { spots } = analyzeDecisions(decisions);
+  const n = spots.reduce((a, sp) => a + sp.n, 0);
+  const rank = (s) => ({ weak: 0, ok: 1, thin: 2, strong: 3 }[verdict(s)]);
+  const toWork = spots.filter((sp) => sp.mistakes && (verdict(sp) === 'weak' || sp.avg < 0.5))
+    .sort((a, b) => rank(a) - rank(b) || a.avg - b.avg || b.mistakes - a.mistakes).slice(0, max);
+  return { n, score: n ? spots.reduce((a, sp) => a + sp.score, 0) / n : NaN, mistakes: spots.reduce((a, sp) => a + sp.mistakes, 0), toWork };
+}

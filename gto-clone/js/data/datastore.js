@@ -1,7 +1,7 @@
 // My Data storage: imported tournaments, the hero's preflop decisions, one
 // small record per hand, and the import sessions — kept in this browser only
 // (localStorage key gtoc.data.v1).
-import { parseFile } from './parsers.js';
+import { parseFile, money } from './parsers.js';
 import { extractDecisions } from './decisions.js';
 import { handRecord } from './handstats.js';
 import { hashStr } from '../engine/rng.js';
@@ -14,14 +14,36 @@ import { hashStr } from '../engine/rng.js';
 //   even when it shows up in two files.
 const KEY = /[?&]test=1/.test(location.search) ? 'gtoc.data.test' : 'gtoc.data.v1';
 export const DATA_KEY = KEY;
-const EMPTY = () => ({ tournaments: {}, decisions: {}, hands: {}, sessions: [], screenNames: [], files: {} });
+// v2: Winamax uncalled bets and re-entries read from the hands. Hand records
+// are only rebuilt from the files, so older data asks for one re-import.
+const VERSION = 2;
+const EMPTY = () => ({ v: VERSION, tournaments: {}, decisions: {}, hands: {}, sessions: [], screenNames: [], files: {} });
 const fingerprint = (text) => `${text.length}:${hashStr(text)}`;
 let db = load();
 
 function load() {
-  try { return { ...EMPTY(), ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
+  let d;
+  try { d = { ...EMPTY(), v: 1, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
   catch { return EMPTY(); }
+  if (d.v < VERSION) {
+    // Files are read again on the next import or gateway sync (hands are replaced, never doubled).
+    for (const key in d.hands) if (d.tournaments[key] && d.hands[key].length) d.tournaments[key].stale = true;
+    // Prizes read from a summary row used to keep the percentage's digits (30.345 for "€30.34 (5.186%)").
+    for (const t of Object.values(d.tournaments)) {
+      t.entries = 1 + (t.reentries || 0);
+      if (!(Math.abs(t.prize * 100 - Math.round(t.prize * 100)) > 1e-6)) continue;
+      const row = t.rows?.map((r) => r.match(/^\s*\d+: (.+?)(?: \[\d+\])? \([^)]*\),\s*(.*)$/)).find((m) => m && d.screenNames.includes(m[1]));
+      if (row) { t.prize = money(row[2]); t.winnings = t.prize + (t.bounties || 0); t.profit = t.winnings - (t.cost || 0); }
+    }
+    d.files = {};
+    if (d.gateway) d.gateway = { ...d.gateway, seen: {}, last: null };
+    d.v = VERSION;
+    try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* storage full */ }
+  }
+  return d;
 }
+// Tournaments whose hands were imported before the last fix of the numbers.
+export const staleCount = () => Object.values(db.tournaments).filter((t) => t.stale).length;
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(db)); return true; }
   catch { return false; }
@@ -59,11 +81,15 @@ function derive(t) {
       if (!m || !db.screenNames.includes(m[2])) continue;
       if (/still playing/.test(m[3])) { t.running = true; break; }
       if (t.place == null) t.place = +m[1];
-      if (t.prize == null) t.prize = m[3] ? (parseFloat(m[3].replace(/[^\d.]/g, '')) || 0) : 0;
+      if (t.prize == null) t.prize = money(m[3]); // the first amount: "€30.34 (5.186%)" is 30.34
       break;
     }
   }
-  t.cost = (t.buyin || 0) + (t.reentryCost || (t.buyin || 0) * (t.reentries || 0));
+  // Re-entries: the summary's count, or the busts followed by more hands in the history.
+  const re = Math.max(t.reentries || 0, t.hhReentries || 0);
+  const buyin = t.buyin || 0; // the hand history's buy-in only counts for the ABI: profit waits for the summary
+  t.entries = 1 + re;
+  t.cost = buyin + (t.reentryCost && (t.reentries || 0) >= re ? t.reentryCost : buyin * re);
   t.bounties = (t.bounty || 0) + (t.hhBounty || 0);
   t.winnings = (t.prize || 0) + t.bounties;
   t.profit = t.winnings - t.cost;
@@ -115,6 +141,10 @@ export function importFiles(files, { source = 'manual' } = {}) {
       db.hands[t.key] = [...(db.hands[t.key] || []).filter((r) => !ids.has(String(r.h))), ...recs];
       t.handsCount = db.hands[t.key].length;
       t.hhBounty = db.hands[t.key].reduce((a, r) => a + (r.b || 0), 0);
+      // A bust followed by more hands is a re-entry.
+      const order = db.hands[t.key].slice().sort((a, b) => (a.at || '').localeCompare(b.at || '') || String(a.h).localeCompare(String(b.h)));
+      t.hhReentries = order.slice(0, -1).filter((r) => r.x).length;
+      delete t.stale;
       t.files = [...new Set([...t.files, 'hands'])];
       db.files[fp] = t.key;
       report.decisions += decisions.length;

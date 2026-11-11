@@ -5,7 +5,7 @@ import { getDecisions, getTournaments, getHandRecords } from '../data/datastore.
 import { getSessions } from '../store.js';
 import { hudTotals, results } from '../data/handstats.js';
 import {
-  analyzeDecisions, prepareSpots, verdict, SCEN, STACK_GROUPS, spotTitle, spotStory, keyMetric, liveAction,
+  analyzeDecisions, prepareSpots, verdict, SCEN, STACK_GROUPS, spotTitle, spotStory, keyMetric, liveAction, sessionReview,
 } from '../data/leaks.js';
 import { spotTarget, trainingDecisions } from '../data/program.js';
 import { prepareSpot, startProgram } from './practice.js';
@@ -328,16 +328,11 @@ function lastSessions(types, recs) {
       const r = results(recs.filter((x) => tids.has(x.t)));
       const hud = hudTotals(recs.filter((x) => tids.has(x.t)));
       const rate = (k) => (hud[k]?.opp ? Math.round((hud[k].hit / hud[k].opp) * 100) + ' %' : '–');
-      const { spots } = analyzeDecisions(decisions.filter((d) => tids.has(d.t)));
-      const n = spots.reduce((a, sp) => a + sp.n, 0);
-      const score = n ? spots.reduce((a, sp) => a + sp.score, 0) / n : NaN;
-      // Weak spots first; with few hands, the spots with the most costly mistakes.
-      const toWork = spots.filter((sp) => sp.mistakes && (verdict(sp) === 'weak' || sp.avg < 0.5))
-        .sort((a, b) => order(a) - order(b) || a.avg - b.avg || b.mistakes - a.mistakes).slice(0, 4);
+      const { n, score, mistakes, toWork } = sessionReview(decisions.filter((d) => tids.has(d.t)));
       return h('div.coach.session-card',
         h('div.row.between', h('strong', fmt(s.start)), h('span.small.muted', plural(s.tours.length, 'tournoi', 'tournois'))),
         h('div.small', `${plural(r.hands, 'main', 'mains')} · ${(r.bb100 >= 0 ? '+' : '') + r.bb100.toFixed(1).replace('.', ',')} bb/100 · VPIP ${rate('VPIP')} · PFR ${rate('PFR')} · 3-bet ${rate('3B')}`),
-        h('div.small', n ? `${plural(n, 'décision analysée', 'décisions analysées')} · score ${pct(score, 0)} · ${plural(spots.reduce((a, sp) => a + sp.mistakes, 0), 'erreur', 'erreurs')}` : 'Aucune décision préflop analysée.'),
+        h('div.small', n ? `${plural(n, 'décision analysée', 'décisions analysées')} · score ${pct(score, 0)} · ${plural(mistakes, 'erreur', 'erreurs')}` : 'Aucune décision préflop analysée.'),
         h('div.panel-title', 'Spots à travailler'),
         toWork.length ? h('ul.small.session-spots', toWork.map((sp) => h('li', h('strong', `${spotTitle(sp)} · ${sp.group}`), ` · ${plural(sp.mistakes, 'erreur', 'erreurs')} sur ${plural(sp.n, 'main', 'mains')}`)))
           : h('p.small.muted', 'Rien à corriger sur cette session.'),

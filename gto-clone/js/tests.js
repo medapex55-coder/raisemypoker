@@ -22,7 +22,7 @@ import { analyzeDecisions, keyMetric, practiceSpotKey, spotKey, liveAction, spot
 import { handIdFromLink, handUrl, parseWinamaxHand } from './data/winamax.js';
 import { replayHand } from './data/handanalysis.js';
 import { WINAMAX_HAND } from './fixture-winamax.js';
-import { contributions, handResult, equityShare, handFlags, handRecord, results as handTotals, hudTotals } from './data/handstats.js';
+import { contributions, handResult, equityShare, handFlags, handRecord, heroBusted, results as handTotals, hudTotals } from './data/handstats.js';
 
 // Synthetic PokerStars files (made up for the tests, same layout as the real ones).
 const PS_SUMMARY = `PokerStars Tournament #111, No Limit Hold'em
@@ -431,6 +431,17 @@ await test('D09', 'result in bb and all-in EV: AA all-in on the flop loses but i
   assert(rb.net === -1 && rb.ev === -1 && !rb.sd, 'BB fold loses 1bb, no showdown');
   const tot = handTotals([handRecord(a), handRecord(b)]);
   assert(tot.hands === 2 && Math.abs(tot.nsd - -1) < 1e-9 && Math.abs(tot.sd - -30) < 1e-9 && tot.luck < 0 && tot.runBetter > 0.5, 'totals: unlucky');
+});
+await test('D09-H2', 'no "Uncalled bet" line (Winamax): the uncalled part still comes back; busts are seen', () => {
+  const [a, b] = parseFile(PS_HANDS2).hands.hands;
+  const b2 = parseFile(PS_HANDS2.replace(/^Uncalled bet.*\r?\n/m, '')).hands.hands[1];
+  assert(!Object.keys(b2.returned).length, 'no returned line');
+  const c = contributions(b), c2 = contributions(b2);
+  assert(Object.keys(c).every((n) => Math.abs(c[n] - (c2[n] || 0)) < 1e-9), `same contributions: ${JSON.stringify(c)} vs ${JSON.stringify(c2)}`);
+  assert(handResult(b2).net === handResult(b).net, 'same result');
+  const a2 = parseFile(PS_HANDS2.replace(/^Uncalled bet.*\r?\n/m, '')).hands.hands[0];
+  assert(contributions(a2).Hero === 3000, 'an all-in that was called stays whole');
+  assert(heroBusted(a) && !heroBusted(b), 'hero busted in hand 1 only');
 });
 await test('D10', 'HUD counters: RFI and steal from the BTN, fold in the BB to a steal', () => {
   const [a, b] = parseFile(PS_HANDS2).hands.hands;
@@ -966,8 +977,9 @@ await test('F10-H1', 'my data: an import is a session with a recap, a run meter 
   assert(r3.ok === 1 && r3.newHands === 0 && r3.newTournaments === 0, 'same hands in another file: merged');
   assert(ds.getTournaments().length === 1 && ds.getHandRecords().length === 2 && ds.getImportSessions().length === 1, 'no duplicate tournament, hand or session');
   await load('#/data');
-  const sess = await waitFor(() => doc().querySelector('.import-session'));
-  assert(/1 tournoi/.test(sess.textContent) && /2 mains/.test(sess.textContent) && /ABI 5,00/.test(sess.textContent), `recap: ${sess.querySelector('.recap').textContent}`);
+  const sess = await waitFor(() => doc().querySelector('.session-detail'));
+  assert(doc().querySelectorAll('.session-chip').length === 1 && /2 entrées dont 1 re-entry/.test(sess.textContent) && /ABI 5,00/.test(sess.textContent), `recap: ${sess.textContent.slice(0, 300)}`);
+  await waitFor(() => /décisions? notées? avec tes chartes actuelles/.test(sess.querySelector('.session-review').textContent));
   assert(doc().querySelector('.run-bar .run-marker') && doc().querySelector('svg.wchart polyline'), 'run meter and graph');
   await load('#/leaks');
   (await waitFor(() => [...doc().querySelectorAll('[aria-label="Vue Leakfinder"] button')].find((b) => b.textContent === 'Stats'))).click();

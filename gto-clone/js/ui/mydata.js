@@ -2,9 +2,12 @@ import { h, mount, num, toast } from './dom.js';
 import { StatTile } from './components.js';
 import { WinningsChart } from './chart.js';
 import {
-  importFiles, getTournaments, getHandRecords, setType, removeTournament, clearAll, getScreenNames, setScreenNames,
+  importFiles, getTournaments, getHandRecords, setType, removeTournament, clearAll, getScreenNames, setScreenNames, staleCount,
 } from '../data/datastore.js';
-import { results, runZone, reliability } from '../data/handstats.js';
+import { results, runZone, reliability, hudTotals } from '../data/handstats.js';
+import { prepareSpots, sessionReview, spotTitle } from '../data/leaks.js';
+import { spotTarget, trainingDecisions } from '../data/program.js';
+import { startProgram } from './practice.js';
 import { playSessions, abi, SESSION_HOURS } from '../data/playsessions.js';
 import { recordImport } from '../data/progress.js';
 import { celebrate } from './gamify.js';
@@ -128,6 +131,8 @@ function render() {
   const rooms = [...new Set(all.map((t) => t.room))];
   const tids = new Set(list.map((t) => t.tid));
   const recs = getHandRecords().filter((r) => tids.has(r.t));
+  const groups = playSessions(list, recs);
+  const stale = staleCount();
 
   const input = h('input', { type: 'file', multiple: true, accept: '.txt', hidden: true, on: { change: (e) => readFiles(e.target.files) } });
   const drop = h('div.dropzone', {
@@ -148,6 +153,7 @@ function render() {
     drop,
     gatewayPanel(),
     backupPanel(),
+    stale ? h('div.panel.warn.stale-note', h('strong', 'Réimporte tes historiques de mains'), h('p.small', `Le calcul des gains, du run meter et des re-entries a été corrigé (mises non payées sur Winamax, re-entries lues dans les mains). ${plural(stale, 'tournoi a', 'tournois ont')} été importé${stale > 1 ? 's' : ''} avant : dépose à nouveau tes fichiers, ou synchronise la passerelle Winamax (elle relit tout le dossier). Rien n'est compté deux fois.`)) : null,
     lastReport?.errors.length ? h('div.panel.warn', h('strong', 'Certains fichiers n\'ont pas été lus'), h('ul', lastReport.errors.slice(0, 8).map((e) => h('li.small', e)))) : null,
     h('details.help', h('summary', 'Règle anti-doublon'),
       h('ul.small',
@@ -171,14 +177,14 @@ function render() {
       rooms.length > 1 ? h('label.pick-field', 'Room', h('select', { on: { change: (e) => { filter.room = e.target.value; render(); } } },
         ['all', ...rooms].map((r) => h('option', { value: r, selected: filter.room === r }, r === 'all' ? 'Toutes' : r)))) : null) : null,
     all.length ? h('div.stats-row.wide',
-      StatTile('Tournois', m.done.length, list.length > m.done.length ? `${list.length - m.done.length} en cours` : null),
+      StatTile('Tournois', m.done.length, [entriesOf(list) > list.length ? `${entriesOf(list)} entrées avec les re-entries` : null, list.length > m.done.length ? `${list.length - m.done.length} en cours` : null].filter(Boolean).join(' · ') || null),
       StatTile('Total des buy-ins', eur(m.cost)),
       StatTile('ABI', eur(abi(list)), 'buy-in moyen'),
       StatTile('Total gagné', eur(m.won)),
       StatTile('Bénéfice', h('span', { class: m.profit >= 0 ? 'pos' : 'neg' }, signed(m.profit))),
       StatTile('ROI', roiText(m), `ITM ${Math.round(m.itm * 100)} %`)) : null,
-    all.length ? runPanel(recs) : null,
-    all.length ? sessionsView(list, recs) : h('div.empty-state', h('p.muted', 'Aucun tournoi pour l\'instant. Importe tes fichiers pour voir tes résultats ici, puis ouvre Leakfinder.')),
+    all.length ? runPanel(recs, groups[0]?.start != null ? new Set(groups[0].tours.map((t) => t.tid)) : null) : null,
+    all.length ? sessionsView(groups, recs) : h('div.empty-state', h('p.muted', 'Aucun tournoi pour l\'instant. Importe tes fichiers pour voir tes résultats ici, puis ouvre Leakfinder.')),
   ));
 }
 
@@ -199,22 +205,22 @@ function zPos(z) {
   return 100;
 }
 
-export function runPanel(recs) {
+export function runPanel(recs, lastTids = null) {
   if (!recs.length) {
     return h('section.panel', h('div.panel-title', 'Winrate et run meter'),
       h('p.muted.small', 'Importe aussi les historiques de mains de tes tournois pour voir ton winrate en bb/100, ta courbe de gains et ton run meter. Les tournois importés avant cette version doivent être réimportés.'));
   }
   const r = results(recs);
-  const lastSession = recs[recs.length - 1]?.s;
-  const prev = lastSession ? recs.filter((x) => x.s !== lastSession) : [];
+  // Compared with before the last play session.
+  const prev = lastTids ? recs.filter((x) => !lastTids.has(x.t)) : [];
   const p = prev.length ? results(prev) : null;
   const stat = (value, label, color, key) => {
     const d = p ? value - p[key] : null;
     const isHands = key === 'hands';
     return h('div.wr-stat',
       h('div.big', h('span', { class: isHands ? '' : value >= 0 ? 'pos' : 'neg' }, isHands ? value : sgn(value)),
-        d != null && !isHands ? h('span.delta' + (d > 0.05 ? '.up' : d < -0.05 ? '.down' : ''), { title: 'Écart par rapport à avant la dernière session' }, (d > 0.05 ? '↑ ' : d < -0.05 ? '↓ ' : '') + sgn(d)) : null,
-        d != null && isHands ? h('span.delta', { title: 'Mains ajoutées par la dernière session' }, '+' + d) : null),
+        d != null && !isHands ? h('span.delta' + (d > 0.05 ? '.up' : d < -0.05 ? '.down' : ''), { title: 'Écart par rapport à avant ta dernière session de jeu' }, (d > 0.05 ? '↑ ' : d < -0.05 ? '↓ ' : '') + sgn(d)) : null,
+        d != null && isHands ? h('span.delta', { title: 'Mains jouées pendant ta dernière session de jeu' }, '+' + d) : null),
       h('div.wr-label', color ? h('span.dot', { style: { '--c': color } }) : null, label));
   };
   const zone = runZone(r.z);
@@ -245,27 +251,85 @@ export function runPanel(recs) {
 }
 
 // ---------- play sessions (10h windows) ----------
+// A strip of sessions (date and result), and the chosen one in full: money,
+// hands, winrate, luck, HUD, its preflop decisions graded with your current
+// charts, the spots to work on, and its tournaments.
 const hhmm = (x) => new Date(x).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-function sessionsView(list, recs) {
-  const groups = playSessions(list, recs);
-  return h('div.sessions',
+const dayText = (x) => new Date(x).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+const duration = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`; };
+const entriesOf = (tours) => tours.reduce((a, t) => a + (t.entries || 1), 0);
+let shownSession = null; // start time of the session on display
+
+function sessionsView(groups, recs) {
+  if (!groups.length) return null;
+  const idOf = (g) => String(g.start ?? 'none');
+  const cur = groups.find((g) => idOf(g) === shownSession) || groups[0];
+  const strip = h('div.session-strip', { role: 'tablist', 'aria-label': 'Sessions de jeu' }, groups.map((g) => {
+    const m = money(g.tours);
+    const on = g === cur;
+    return h('button.session-chip' + (on ? '.on' : ''), {
+      type: 'button', role: 'tab', 'aria-selected': String(on),
+      on: { click: () => { shownSession = idOf(g); render(); } },
+    },
+    h('span.small.muted', g.start ? dayText(g.start) : 'Date inconnue'),
+    h('strong', { class: m.done.length ? (m.profit >= 0 ? 'pos' : 'neg') : '' }, m.done.length ? signed(m.profit) : 'en cours'),
+    h('span.small.muted', plural(entriesOf(g.tours), 'entrée', 'entrées')));
+  }));
+  return h('section.sessions',
     h('h2', 'Sessions de jeu'),
-    h('p.small.muted', `Une session commence à ton premier tournoi et regroupe tous ceux lancés dans les ${SESSION_HOURS} heures qui suivent (ex. de 17h à 5h du matin). L'heure de fin est celle de ta dernière main importée (sans historique de mains : celle du dernier tournoi lancé).`),
-    groups.map(({ start, end, tours }, i) => {
-      const m = money(tours);
-      const hands = tours.reduce((a, t) => a + (t.handsCount || 0), 0);
-      return h('details.panel.import-session', { open: i === 0 },
-        h('summary',
-          h('strong', start ? `Session du ${new Date(start).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}` : 'Date inconnue'),
-          start ? h('span.small.muted', `${hhmm(start)} → ${hhmm(end)}`) : null,
-          h('span.recap',
-            h('span', h('b', tours.length), tours.length > 1 ? ' tournois' : ' tournoi'),
-            h('span', h('b', hands), hands > 1 ? ' mains' : ' main'),
-            h('span', 'ABI ', h('b', eur(abi(tours)))),
-            h('span', 'ROI ', h('b', { class: m.roi >= 0 ? 'pos' : 'neg' }, roiText(m))),
-            h('span', 'Résultat net ', h('b', { class: m.profit >= 0 ? 'pos' : 'neg' }, signed(m.profit))))),
-        h('div.session-body', tourTable(tours)));
-    }));
+    h('p.small.muted', `Une session commence à ton premier tournoi et regroupe tous ceux lancés dans les ${SESSION_HOURS} heures qui suivent. Choisis une session pour voir son détail.`),
+    strip,
+    sessionDetail(cur, recs));
+}
+
+function sessionDetail(g, allRecs) {
+  const tids = new Set(g.tours.map((t) => t.tid));
+  const recs = allRecs.filter((r) => tids.has(r.t));
+  const m = money(g.tours);
+  const r = results(recs);
+  const hud = hudTotals(recs);
+  const rate = (k) => (hud[k]?.opp ? Math.round((hud[k].hit / hud[k].opp) * 100) + ' %' : '–');
+  const entries = entriesOf(g.tours);
+  const re = entries - g.tours.length;
+  const bounties = g.tours.reduce((a, t) => a + (t.bounties || 0), 0);
+  const review = h('div.session-review', h('p.small.muted', 'Analyse de tes décisions préflop…'));
+  fillReview(review, trainingDecisions().filter((d) => tids.has(d.t)));
+  return h('div.panel.session-detail', { role: 'tabpanel' },
+    h('div.row.between.wrap',
+      h('div', h('strong', g.start ? `Session du ${dayText(g.start)}` : 'Tournois sans date'),
+        g.start ? h('span.small.muted', ` · ${hhmm(g.start)} → ${hhmm(g.end)} (${duration(g.end - g.start)})`) : null),
+      h('span.big-result', { class: m.profit >= 0 ? 'pos' : 'neg' }, m.done.length ? signed(m.profit) : '–')),
+    h('div.stats-row.wide',
+      StatTile('Tournois', g.tours.length, re ? `${plural(entries, 'entrée', 'entrées')} dont ${plural(re, 're-entry', 're-entries')}` : plural(entries, 'entrée', 'entrées')),
+      StatTile('Buy-ins', eur(m.cost), `ABI ${eur(abi(g.tours))}`),
+      StatTile('Gains', eur(m.won), bounties ? `dont ${eur(bounties)} de primes` : null),
+      StatTile('ROI', roiText(m), `ITM ${Math.round(m.itm * 100)} %`),
+      StatTile('Mains', recs.length || '–', recs.length ? `VPIP ${rate('VPIP')} · PFR ${rate('PFR')} · 3-bet ${rate('3B')}` : 'historique non importé')),
+    recs.length ? h('div.stats-row.wide',
+      StatTile('Winrate', h('span', { class: r.bb100 >= 0 ? 'pos' : 'neg' }, sgn(r.bb100) + ' bb/100')),
+      StatTile('Winrate EV', h('span', { class: r.ev100 >= 0 ? 'pos' : 'neg' }, sgn(r.ev100) + ' bb/100')),
+      StatTile('Chance', h('span', { class: r.luck >= 0 ? 'pos' : 'neg' }, sgn(r.luck, 0) + ' bb'), 'gains réels − gains EV'),
+      StatTile('Showdown', sgn(r.sd100) + ' bb/100'),
+      StatTile('Sans showdown', sgn(r.nsd100) + ' bb/100')) : null,
+    recs.length > 1 ? WinningsChart(r.curve) : null,
+    review,
+    tourTable(g.tours));
+}
+
+// The session's preflop decisions graded with the charts you have today.
+async function fillReview(box, decisions) {
+  if (!decisions.length) { box.replaceChildren(h('p.small.muted', 'Aucune décision préflop : importe l\'historique des mains de ces tournois.')); return; }
+  await prepareSpots(decisions);
+  if (!box.isConnected) return;
+  const { n, score, mistakes, toWork } = sessionReview(decisions);
+  box.replaceChildren(
+    h('div.panel-title', 'Tes décisions préflop'),
+    h('p.small', n ? `${plural(n, 'décision notée', 'décisions notées')} avec tes chartes actuelles · score ${Math.round(score * 100)} % · ${plural(mistakes, 'erreur', 'erreurs')}` : 'Aucune décision notée sur ces spots.'),
+    toWork.length ? h('ul.small.session-spots', toWork.map((sp) => h('li', h('strong', `${spotTitle(sp)} · ${sp.group}`), ` · ${plural(sp.mistakes, 'erreur', 'erreurs')} sur ${plural(sp.n, 'main', 'mains')}`))) : n ? h('p.small.muted', 'Rien à corriger sur cette session.') : null,
+    toWork.length ? h('div.row.end', h('button.btn.primary.sm', {
+      type: 'button', title: 'S\'entraîner sur ces spots, 10 mains chacun',
+      on: { click: () => { startProgram({ slotId: null, spots: toWork.map(spotTarget), random: false }); location.hash = '#/practice'; } },
+    }, 'Étudier ces spots')) : null);
 }
 
 function tourTable(list) {
@@ -277,7 +341,7 @@ function tourTable(list) {
       h('td', h('div', t.name), h('div.small.muted', `${t.room} #${t.tid}`)),
       h('td', h('select.inline', { 'aria-label': 'Type de tournoi', on: { change: (e) => { setType(t.key, e.target.value); render(); } } },
         Object.entries(TYPES).map(([v, l]) => h('option', { value: v, selected: t.type === v }, l)))),
-      h('td.mono', eur(t.buyin), t.reentries ? h('div.small.muted', `+${plural(t.reentries, 're-entry', 're-entries')}`) : null),
+      h('td.mono', eur(t.buyin), t.entries > 1 ? h('div.small.muted', `+${plural(t.entries - 1, 're-entry', 're-entries')} · total ${eur(t.cost)}`) : null),
       h('td.mono', t.players || '–'),
       h('td.mono', eur(t.prizePool)),
       h('td.mono', t.running ? 'en cours' : t.place ? `${t.place}${t.players ? ' / ' + t.players : ''}` : '–'),

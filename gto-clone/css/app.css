@@ -651,3 +651,16 @@ h1 { font-size: 26px; }
 .recap { display: flex; flex-direction: column; gap: var(--s3); }
 .recap-list, .recap-worst { margin: var(--s2) 0 0; padding-left: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
 .session-spots { margin: 0; padding-left: var(--s4); display: flex; flex-direction: column; gap: 2px; }
+
+/* Mes données: play sessions as a strip of chips, the chosen one in detail */
+.session-strip { display: flex; gap: var(--s2); overflow-x: auto; padding: 2px 2px var(--s2); margin: var(--s2) 0 var(--s3); scroll-snap-type: x proximity; }
+.session-chip { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 112px; padding: var(--s2) var(--s3); border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; scroll-snap-align: start; font: inherit; text-align: left; }
+.session-chip:hover { border-color: var(--accent); }
+.session-chip.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+.session-chip strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.session-detail { display: flex; flex-direction: column; gap: var(--s3); }
+.session-detail .stats-row.wide { margin: 0; }
+.session-detail .big-result { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.session-review { border-top: 1px solid var(--border); padding-top: var(--s3); }
+.session-strip { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.session-detail .stat-value { font-size: 1.25rem; white-space: nowrap; }
