@@ -5,7 +5,7 @@
 import { cardStr } from './cards.js';
 
 export const POS = ['LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
-export const STACKS = [200, 100, 80, 70, 50, 40, 30, 25, 20, 15, 10];
+export const STACKS = [200, 100, 80, 70, 50, 40, 30, 25, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10];
 export const OPEN_SIZES = ['limp', '2', '2.5', '4.5']; // '2.5' means the SB opens 3.5, '2' the SB opens 3
 // Tournament stage = how much of the field is left. 'hu' is heads-up: only the
 // SB (who is also the button) and the BB are dealt in.

@@ -293,6 +293,26 @@ await test('U24', 'all-in strategy at 20bb and less', () => {
   const f20 = comboFreqs(n20, CLASS_BY_NAME.A5o.combos[0]);
   assert(f20[n20.actions.findIndex((a) => a.type === 'allin')] < 0.3, 'at 20bb most of it still min-raises');
 });
+await test('U24-X', 'exact-stack open charts (BTN 10-14bb) replace the push/fold equilibrium for that seat only', () => {
+  const btn = (stack) => foldTo(initialState({ stack, open: '2' }), 3);
+  assert(!pushFoldSpot(btn(14)) && !pushFoldSpot(btn(10)), 'BTN has a chart at 14bb and 10bb');
+  assert(pushFoldSpot(foldTo(initialState({ stack: 14, open: '2' }), 2))?.kind === 'push' && pushFoldSpot(btn(15))?.kind === 'push', 'CO at 14bb and BTN at 15bb keep the equilibrium');
+  const at = (stack, name) => {
+    const n = analyze(btn(stack)), f = comboFreqs(n, CLASS_BY_NAME[name].combos[0]);
+    const k = (t) => f[n.actions.findIndex((a) => a.type === t)];
+    return k('allin') === 1 ? 'A' : k('raise') === 1 ? 'R' : k('fold') === 1 ? 'F' : '?';
+  };
+  const read = (stack, names) => names.map((x) => at(stack, x)).join('');
+  assert(read(14, ['AA', 'ATs', 'A9s', 'K6s', 'K3s', 'K9o', 'J9o', '88', '77', 'A2o']) === 'RRARFRFRAA', `14bb: ${read(14, ['AA', 'ATs', 'A9s', 'K6s', 'K3s', 'K9o', 'J9o', '88', '77', 'A2o'])}`);
+  assert(read(10, ['AA', 'AKs', 'KK', 'Q5s', 'Q4s', 'K8o', 'Q8o', 'T9o', '76s', '22']) === 'RARRFRFAAA', `10bb: ${read(10, ['AA', 'AKs', 'KK', 'Q5s', 'Q4s', 'K8o', 'Q8o', 'T9o', '76s', '22'])}`);
+  // Shares of the chart, as on the source screenshots: 14bb raise 10.1 %, all-in 24.7 %; 10bb raise 2.6 %, all-in 36.5 %.
+  const share = (stack, t) => { const n = analyze(btn(stack)); return overallFreqs(n).freqs[n.actions.findIndex((a) => a.type === t)]; };
+  near(share(14, 'raise'), 0.101, 0.002, '14bb raise'); near(share(14, 'allin'), 0.247, 0.002, '14bb all-in');
+  near(share(13, 'raise'), 0.063, 0.002, '13bb raise'); near(share(13, 'allin'), 0.27, 0.002, '13bb all-in');
+  near(share(12, 'raise'), 0.038, 0.002, '12bb raise'); near(share(12, 'allin'), 0.302, 0.002, '12bb all-in');
+  near(share(11, 'raise'), 0.03, 0.002, '11bb raise'); near(share(11, 'allin'), 0.315, 0.002, '11bb all-in');
+  near(share(10, 'raise'), 0.026, 0.002, '10bb raise'); near(share(10, 'allin'), 0.365, 0.002, '10bb all-in');
+});
 
 await test('D01', 'PokerStars summary: buy-in, players, prize pool, place, prize, re-entry', () => {
   const s = parseFile(PS_SUMMARY).summary;

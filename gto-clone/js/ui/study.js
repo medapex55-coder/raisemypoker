@@ -12,7 +12,7 @@ const OPEN_LABELS = { limp: 'Limp 1bb', 2: '2bb (SB 3)', 2.5: '2.5bb (SB 3.5)', 
 const STAGE_LABELS = { 100: 'Début (100 %)', 50: '50 % restants', 25: '25 % restants', 10: '10 % restants', semi: 'Demi-finale', ft: 'Table finale', hu: 'Heads-up' };
 import {
   analyze, isCached, classSummary, overallFreqs, comboFreqs, comboEVs, classAverage, rangeCombos,
-  chartCode, chartCodeAt, openFreqs, chartBlend, getOpenStyle, setOpenStyle, chartDepth, bbChart, bbCode, bbFreqs, pushFoldSpot,
+  chartCode, chartCodeAt, openFreqs, chartBlend, getOpenStyle, setOpenStyle, chartDepthFor, bbChart, bbCode, bbFreqs, pushFoldSpot,
 } from '../engine/strategy.js';
 import { getSettings, setSetting } from '../store.js';
 import { TAG_NAMES } from '../data/open-charts.js';
@@ -588,7 +588,7 @@ const OPEN_NAMES = { R: 'Raise', A: 'All-in', M: 'Limp', F: 'Fold', ...TAG_NAMES
 function chartPanel(node) {
   if (!isFirstIn(node) || pushFoldSpot(node.st)) return null;
   const p = node.actor;
-  const stack = node.st.cfg.stack, depth = chartDepth(stack), b = chartBlend(stack);
+  const stack = node.st.cfg.stack, depth = chartDepthFor(p, stack), b = chartBlend(stack);
   const open = node.actions.find((a) => a.type === 'raise') || node.actions.find((a) => a.type === 'allin');
   const raiseLabel = open ? `Raise ${open.to}` : 'Limp (taille d\'open)';
   let rows;

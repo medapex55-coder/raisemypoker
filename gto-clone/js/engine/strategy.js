@@ -10,6 +10,7 @@ import { hashStr } from './rng.js';
 import { OPEN_CHARTS } from '../data/open-charts.js';
 import { OPEN_CHARTS_50, BB_CHARTS_50, BB_CODES } from '../data/charts-50.js';
 import { OPEN_CHARTS_25, OPEN_CHARTS_20, BB_CHARTS_25, BB_CHARTS_20 } from '../data/charts-short.js';
+import { OPEN_CHARTS_EXACT } from '../data/charts-exact.js';
 import { VS_OPEN_100 } from '../data/charts-100.js';
 import { stageBubbleFactor } from './icm.js';
 import { solutionAt, onSolution } from './solutions.js';
@@ -105,12 +106,19 @@ const BB_BY_DEPTH = { 20: { charts: BB_CHARTS_20 }, 25: { charts: BB_CHARTS_25 }
 // The other seats' charts facing a single open: { [defender]: { [opener]: chart } }.
 const DEF_BY_DEPTH = { 100: VS_OPEN_100 };
 const chartOpen = (open) => open === '2' || open === '2.5';
+// A chart given for this exact stack and seat (10 to 19bb), or null.
+export const exactChart = (p, stack) => OPEN_CHARTS_EXACT[stack]?.[POS[p]] || null;
+// The depth of the chart a seat opens with: its exact stack, or the nearest chart depth.
+export const chartDepthFor = (p, stack) => (exactChart(p, stack) ? stack : chartDepth(stack));
 
 export function chartCodeAt(p, cls, depth) {
   const ch = OPEN_BY_DEPTH[depth][POS[p]];
   return ch ? ch[cls.row][cls.col] : null;
 }
-export const chartCode = (p, cls, stack = 100) => chartCodeAt(p, cls, chartDepth(stack));
+export function chartCode(p, cls, stack = 100) {
+  const ex = exactChart(p, stack);
+  return ex ? ex[cls.row][cls.col] : chartCodeAt(p, cls, chartDepth(stack));
+}
 
 const mix = (a, b, t) => Object.fromEntries(['raise', 'limp', 'fold', 'jam'].map((k) => [k, (1 - t) * (a[k] || 0) + t * (b[k] || 0)]));
 // First-in frequencies of a hand: its chart, or the blend of the two charts around the stack.
@@ -174,7 +182,7 @@ export function pushFoldSpot(st) {
   if (st.street !== 0 || isHU(st) || cfg.stack > PUSH_FOLD_STACK || st.limpers.length || st.toAct < 0) return null;
   if (Math.abs(rangeScale(cfg) - 1) > 0.005) return null;
   const p = st.toAct;
-  if (st.raiseLevel === 0 && p <= 4) return { kind: 'push', i: p, nash: pushFoldNash(cfg.stack) };
+  if (st.raiseLevel === 0 && p <= 4) return exactChart(p, cfg.stack) ? null : { kind: 'push', i: p, nash: pushFoldNash(cfg.stack) }; // the user's chart wins
   if (st.raiseLevel === 1 && remaining(st, st.lastAggr) <= 0 && p > st.lastAggr) return { kind: 'call', i: st.lastAggr, j: p, nash: pushFoldNash(cfg.stack) };
   return null;
 }
@@ -288,7 +296,7 @@ function preflopClassFreqs(st, actions, range) {
         call = f.raise - raise + f.limp;
       } else {
         raise = f.raise; call = f.limp;
-        if (!hu && chartFits(st.cfg.stack)) jam = f.jam || 0; // the chart's own all-ins (25bb, 20bb)
+        if (!hu && (chartFits(st.cfg.stack) || exactChart(p, st.cfg.stack))) jam = f.jam || 0; // the chart's own all-ins (25bb, 20bb, exact stacks)
       }
     } else if (facingLimp && p !== 5) {
       raise = within(pc, 0.12 * k); // isolate the top

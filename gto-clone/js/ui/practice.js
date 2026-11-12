@@ -7,7 +7,7 @@ import {
   POS, STREETS, initialState, applyAction, dealBoard, foldTo, legalActions, actionLabel, actionRole,
   aggression, pot, remaining, alive, toCallOf, STACKS, anteOf,
 } from '../engine/game.js';
-import { analyze, comboFreqs, comboEVs, classSummary, chartCode, chartCodeAt, chartBlend, getOpenStyle, rangesOf, chartDepth, bbChart, bbCode, pushFoldSpot, liveLine } from '../engine/strategy.js';
+import { analyze, comboFreqs, comboEVs, classSummary, chartCode, chartCodeAt, chartBlend, getOpenStyle, rangesOf, chartDepthFor, bbChart, bbCode, pushFoldSpot, liveLine } from '../engine/strategy.js';
 import { saveSession, uid, getSettings, getProgress } from '../store.js';
 import { practiceSpotKey, studyLink, spotState } from '../data/leaks.js';
 import { markSlotDone } from '../data/program.js';
@@ -616,7 +616,7 @@ export function explain(node, i) {
       parts.push(`Tes charts ${b.lo}bb (${text(lo)}) et ${b.hi}bb (${text(hi)}), ${mixNote(b)}.${flex(lo) || flex(hi) ? ` Style : ${getOpenStyle()}.` : ''}`);
     } else {
       const code = chartCode(st.toAct, cls, st.cfg.stack);
-      parts.push(`Ton chart ${chartDepth(st.cfg.stack)}bb : ${text(code)}.${flex(code) ? ` Style : ${getOpenStyle()}.` : ''}`);
+      parts.push(`Ton chart ${chartDepthFor(st.toAct, st.cfg.stack)}bb : ${text(code)}.${flex(code) ? ` Style : ${getOpenStyle()}.` : ''}`);
     }
   }
   const ch = bbChart(st);
