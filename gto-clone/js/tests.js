@@ -988,6 +988,31 @@ await test('F10-H1', 'my data: an import is a session with a recap, a run meter 
   assert(vpip.querySelector('.val').textContent === '50', `VPIP ${vpip.querySelector('.val').textContent}`);
   ds.clearAll();
 });
+await test('F10-G1', 'gateways: PokerStars has its own folder state next to Winamax; a synced file is read once', async () => {
+  await load('#/data');
+  const at = (p) => new URL(p, frame.contentWindow.location.href).href;
+  const ds = await frame.contentWindow.eval(`import('${at('js/data/datastore.js')}')`);
+  const gw = await frame.contentWindow.eval(`import('${at('js/data/gateway.js')}')`);
+  ds.clearAll();
+  const titles = await waitFor(() => { const t = [...doc().querySelectorAll('.panel.gateway .panel-title')].map((x) => x.textContent); return t.length === 2 && t; });
+  assert(titles.join('|') === 'Passerelle Winamax|Passerelle PokerStars', `panels: ${titles}`);
+  // A made-up folder: the summary, the hand history (as the copy script names them) and a file to ignore.
+  const file = (text, lastModified) => ({ kind: 'file', getFile: async () => ({ size: text.length, lastModified, text: async () => text }) });
+  const dir = { name: 'PokerStars', async* entries() { yield ['Hero_TS1.txt', file(PS_SUMMARY, 1)]; yield ['Hero_HH1.txt', file(PS_HANDS, 2)]; yield ['notes.pdf', file('x', 3)]; } };
+  const r1 = await gw.syncFolder(dir, 'pokerstars');
+  assert(r1.room === 'pokerstars' && r1.total === 2 && r1.read === 2 && r1.report.ok === 2 && r1.report.newTournaments === 1 && r1.report.newHands === 2, `first sync ${JSON.stringify({ ...r1, report: r1.report.ok })}`);
+  const r2 = await gw.syncFolder(dir, 'pokerstars');
+  assert(r2.read === 0 && !r2.report, 'second sync: nothing new');
+  assert(Object.keys(ds.getGateway('pokerstars').seen).length === 2 && !Object.keys(ds.getGateway('winamax').seen).length, 'state kept per room');
+  assert(ds.getImportSessions()[0].source === 'pokerstars' && ds.getTournaments()[0].files.length === 2, 'summary and hands joined in one PokerStars tournament');
+  ds.clearAll();
+  // Real PokerStars KO: the bounty is only in the hand header's buy-in, and the summary read afterwards must not undo it.
+  ds.importFiles([{ name: 'ko-hh.txt', text: PS_HANDS.replace(/€4\.50\+€0\.50/g, '€1.50+€3.00+€0.50').replace(/[^\n]*bounty[^\n]*\n/gi, '') }, { name: 'ko-ts.txt', text: PS_SUMMARY }]);
+  assert(ds.getTournaments()[0].type === 'ko', `KO kept after the summary: ${ds.getTournaments()[0].type}`);
+  ds.clearAll();
+  assert(ds.getGateway('pokerstars').folder === 'PokerStars' && !Object.keys(ds.getGateway('pokerstars').seen).length, 'clearing the data keeps the folder and reads it again');
+  gw.forgetFolder('pokerstars');
+});
 // Play a drill until a hand is finished and listed, answering every decision.
 async function playUntilHandListed(drillName) {
   await load('#/practice');

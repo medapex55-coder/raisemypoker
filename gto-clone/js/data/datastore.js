@@ -36,7 +36,7 @@ function load() {
       if (row) { t.prize = money(row[2]); t.winnings = t.prize + (t.bounties || 0); t.profit = t.winnings - (t.cost || 0); }
     }
     d.files = {};
-    if (d.gateway) d.gateway = { ...d.gateway, seen: {}, last: null };
+    for (const k in d) if (k.startsWith('gateway') && d[k]) d[k] = { ...d[k], seen: {}, last: null };
     d.v = VERSION;
     try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* storage full */ }
   }
@@ -54,9 +54,11 @@ export const getDecisions = () => Object.values(db.decisions).flat();
 export const getHandRecords = () => Object.values(db.hands).flat().sort((a, b) => (a.at || '').localeCompare(b.at || '') || String(a.h).localeCompare(String(b.h)));
 export const getImportSessions = () => db.sessions.slice().reverse();
 export const getScreenNames = () => db.screenNames;
-// Gateway state: which folder, when it last synced, and each file's size+date seen.
-export const getGateway = () => db.gateway || { seen: {}, folder: null, last: null };
-export function setGateway(g) { db.gateway = g; save(); }
+// Gateway state, one per room: which folder, when it last synced, and each file's size+date seen.
+// Winamax keeps the first key ("gateway") so a folder connected before stays connected.
+const gwKey = (room) => (room === 'winamax' ? 'gateway' : `gateway_${room}`);
+export const getGateway = (room = 'winamax') => db[gwKey(room)] || { seen: {}, folder: null, last: null };
+export function setGateway(g, room = 'winamax') { db[gwKey(room)] = g; save(); }
 export function setScreenNames(list) { db.screenNames = list; Object.values(db.tournaments).forEach(derive); save(); }
 export function setType(key, type) { if (db.tournaments[key]) { db.tournaments[key].type = type; db.tournaments[key].typeSet = true; save(); } }
 export function removeTournament(key) {
@@ -64,8 +66,13 @@ export function removeTournament(key) {
   for (const fp in db.files) if (db.files[fp] === key) delete db.files[fp]; // so it can be imported again
   save();
 }
-// The connected folder stays connected; its files will be read again on the next sync.
-export function clearAll() { db = { ...EMPTY(), screenNames: db.screenNames, gateway: { ...getGateway(), seen: {}, last: null } }; save(); }
+// The connected folders stay connected; their files will be read again on the next sync.
+export function clearAll() {
+  const gateways = {};
+  for (const k in db) if (k.startsWith('gateway') && db[k]) gateways[k] = { ...db[k], seen: {}, last: null };
+  db = { ...EMPTY(), screenNames: db.screenNames, ...gateways };
+  save();
+}
 
 function tour(room, tid) {
   const key = `${room}:${tid}`;
@@ -110,7 +117,8 @@ export function importFiles(files, { source = 'manual' } = {}) {
       const s = res.summary;
       if (!db.tournaments[`${s.room}:${s.tid}`]) report.newTournaments++;
       const t = tour(s.room, s.tid);
-      const keepType = t.typeSet ? t.type : null;
+      // The user's choice wins; so does a KO seen in the hands (a PokerStars summary doesn't show the bounty part).
+      const keepType = t.typeSet || (t.type !== 'vanilla' && s.type === 'vanilla') ? t.type : null;
       Object.assign(t, s, { files: [...new Set([...t.files, 'summary'])] });
       if (keepType) t.type = keepType;
       t.session = t.session || sid;

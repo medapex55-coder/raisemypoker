@@ -89,7 +89,7 @@ function parseStarsHands(text) {
   }
   // Buy-in from the hand header, for a tournament imported without its summary.
   const buy = (text.match(/Tournament #\d+, (\S+(?:\+\S+)*)/) || [])[1] || '';
-  return { room: 'PokerStars', tid: hands[0]?.tid, hands, buyin: buy.split('+').map(money).reduce((a, b) => a + b, 0) || null, hero: hands.find((x) => x.hero)?.hero || null, isKO: /bounty/i.test(text) };
+  return { room: 'PokerStars', tid: hands[0]?.tid, hands, buyin: buy.split('+').map(money).reduce((a, b) => a + b, 0) || null, hero: hands.find((x) => x.hero)?.hero || null, isKO: /bounty/i.test(text) || buy.split('+').length >= 3 }; // €1.50+€3.00+€0.50: the middle part is the bounty
 }
 
 // The body of one hand, the same for both rooms: blinds and antes, the actions

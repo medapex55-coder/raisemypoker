@@ -1,4 +1,4 @@
-// Winamax gateway: reads a folder of hand histories straight from the disk
+// Room gateways (Winamax, PokerStars): each reads a folder of hand histories straight from the disk
 // (File System Access API, Chrome and Edge) and imports only what is new.
 // The folder handle is kept in IndexedDB so it survives a reload; the browser
 // still decides when to ask the user to allow access again.
@@ -27,20 +27,22 @@ async function idbDo(mode, fn) {
 
 export const gatewaySupported = () => typeof window.showDirectoryPicker === 'function';
 
-export async function savedFolder() {
-  try { return (await idbDo('readonly', (s) => s.get('winamax'))) || null; } catch { return null; }
+export const GATEWAY_ROOMS = ['winamax', 'pokerstars'];
+
+export async function savedFolder(room = 'winamax') {
+  try { return (await idbDo('readonly', (s) => s.get(room))) || null; } catch { return null; }
 }
 
-export async function pickFolder() {
-  const dir = await window.showDirectoryPicker({ id: 'spotwise-winamax', mode: 'read' });
-  await idbDo('readwrite', (s) => s.put(dir, 'winamax'));
-  setGateway({ ...getGateway(), folder: dir.name, seen: {} });
+export async function pickFolder(room = 'winamax') {
+  const dir = await window.showDirectoryPicker({ id: `spotwise-${room}`, mode: 'read' });
+  await idbDo('readwrite', (s) => s.put(dir, room));
+  setGateway({ ...getGateway(room), folder: dir.name, seen: {} }, room);
   return dir;
 }
 
-export async function forgetFolder() {
-  try { await idbDo('readwrite', (s) => s.delete('winamax')); } catch { /* nothing stored */ }
-  setGateway({ seen: {}, folder: null, last: null });
+export async function forgetFolder(room = 'winamax') {
+  try { await idbDo('readwrite', (s) => s.delete(room)); } catch { /* nothing stored */ }
+  setGateway({ seen: {}, folder: null, last: null }, room);
 }
 
 // ask = true only from a click: the browser shows its permission prompt.
@@ -60,8 +62,8 @@ async function* walk(dir, path = '', depth = 0) {
 
 // Reads the files that are new or changed since the last pass (a running
 // tournament's file grows, so it is read again; its hands merge by number).
-export async function syncFolder(dir) {
-  const g = getGateway();
+export async function syncFolder(dir, room = 'winamax') {
+  const g = getGateway(room);
   const seen = { ...(g.seen || {}) };
   const files = [];
   let total = 0;
@@ -72,10 +74,10 @@ export async function syncFolder(dir) {
     if (seen[path] === sig) continue;
     files.push({ name: path, text: await f.text(), path, sig });
   }
-  const report = files.length ? importFiles(files, { source: 'winamax' }) : null;
+  const report = files.length ? importFiles(files, { source: room }) : null;
   for (const f of files) seen[f.path] = f.sig;
-  setGateway({ ...g, folder: dir.name, seen, last: new Date().toISOString() });
-  return { total, read: files.length, report };
+  setGateway({ ...g, folder: dir.name, seen, last: new Date().toISOString() }, room);
+  return { room, total, read: files.length, report };
 }
 
 // Background sync while the site is open: on start and every 2 minutes, only
@@ -86,12 +88,14 @@ export const onGatewaySync = (fn) => { listeners.add(fn); return () => listeners
 export function startAutoSync() {
   if (!gatewaySupported() || timer) return;
   const tick = async () => {
-    const dir = await savedFolder();
-    if (!dir || !(await hasAccess(dir))) return;
-    try {
-      const res = await syncFolder(dir);
-      if (res.report) listeners.forEach((fn) => fn(res));
-    } catch { /* folder moved or unplugged: try again next tick */ }
+    for (const room of GATEWAY_ROOMS) {
+      try {
+        const dir = await savedFolder(room);
+        if (!dir || !(await hasAccess(dir))) continue;
+        const res = await syncFolder(dir, room);
+        if (res.report) listeners.forEach((fn) => fn(res));
+      } catch { /* folder moved or unplugged: try again next tick */ }
+    }
   };
   tick();
   timer = setInterval(tick, 120000);
