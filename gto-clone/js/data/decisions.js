@@ -2,8 +2,7 @@
 // of the Study tree (6-max seats, stack bucket, scenario). Tables with more
 // seats map their early positions to LJ. Spots the tree doesn't model
 // (multiway, cold 4-bets, heads-up tables) are counted as "not covered".
-// Stack buckets of the Leakfinder's spots (coarser than Study's stack list, so a spot gathers enough hands).
-const STACKS = [200, 100, 80, 70, 50, 40, 30, 25, 20, 15, 10];
+import { STACKS } from '../engine/game.js'; // Study's stack list: a hand is graded at the nearest depth, so a chart given for one exact stack is used
 
 // Seat -> Study seat index (0 LJ, 1 HJ, 2 CO, 3 BTN, 4 SB, 5 BB).
 export function seatMap(hand) {

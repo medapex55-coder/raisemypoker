@@ -14,6 +14,7 @@ export const SCEN = {
 
 export const STACK_GROUPS = [
   { id: '≤15bb', test: (s) => s <= 15 },
+  { id: '16–19bb', test: (s) => s > 15 && s < 20 },
   { id: '20–25bb', test: (s) => s >= 20 && s <= 25 },
   { id: '30–40bb', test: (s) => s >= 30 && s <= 40 },
   { id: '50–80bb', test: (s) => s >= 50 && s <= 80 },

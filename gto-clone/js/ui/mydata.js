@@ -166,7 +166,7 @@ function render() {
     gatewayPanel('winamax'),
     gatewayPanel('pokerstars'),
     backupPanel(),
-    stale ? h('div.panel.warn.stale-note', h('strong', 'Réimporte tes historiques de mains'), h('p.small', `Le calcul des gains, du run meter et des re-entries a été corrigé (mises non payées sur Winamax, re-entries lues dans les mains). ${plural(stale, 'tournoi a', 'tournois ont')} été importé${stale > 1 ? 's' : ''} avant : dépose à nouveau tes fichiers, ou synchronise ta passerelle (elle relit tout le dossier). Rien n'est compté deux fois.`)) : null,
+    stale ? h('div.panel.warn.stale-note', h('strong', 'Réimporte tes historiques de mains'), h('p.small', `Le Leakfinder note maintenant chaque main avec la charte de son stack exact (de 10 à 20bb), et le calcul des gains, du run meter et des re-entries a été corrigé. ${plural(stale, 'tournoi a', 'tournois ont')} été importé${stale > 1 ? 's' : ''} avant : dépose à nouveau tes fichiers, ou synchronise ta passerelle (elle relit tout le dossier). Rien n'est compté deux fois.`)) : null,
     lastReport?.errors.length ? h('div.panel.warn', h('strong', 'Certains fichiers n\'ont pas été lus'), h('ul', lastReport.errors.slice(0, 8).map((e) => h('li.small', e)))) : null,
     h('details.help', h('summary', 'Règle anti-doublon'),
       h('ul.small',

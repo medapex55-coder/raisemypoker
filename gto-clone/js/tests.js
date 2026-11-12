@@ -17,7 +17,7 @@ import { icmEquities, bubbleFactor, requiredEquity } from './engine/icm.js';
 import { gradeDecision } from './ui/practice.js';
 import { prizeLadder, splitPots, createTournament, fieldAt, heroBubbleFactor, tournamentReport, nextHand, settleHand } from './data/tournament.js';
 import { parseFile } from './data/parsers.js';
-import { extractDecisions } from './data/decisions.js';
+import { extractDecisions, stackBucket } from './data/decisions.js';
 import { analyzeDecisions, keyMetric, practiceSpotKey, spotKey, liveAction, spotState } from './data/leaks.js';
 import { handIdFromLink, handUrl, parseWinamaxHand } from './data/winamax.js';
 import { replayHand } from './data/handanalysis.js';
@@ -335,6 +335,15 @@ await test('D03', 'decisions: 9-max seats map to Study seats and scenarios', () 
   assert(d1[1].sc === 'V3' && POS[d1[1].vp] === 'BB' && d1[1].a === 'allin', 'shoves over the BB 3-bet');
   const d2 = extractDecisions(h2).decisions;
   assert(d2.length === 1 && d2[0].sc === 'VS' && POS[d2[0].vp] === 'BTN' && d2[0].s === 10 && d2[0].a === 'call', 'BB calls a 10bb BTN shove');
+});
+await test('D04-X', 'leakfinder grades a hand with the chart of its exact stack (10 to 20bb)', () => {
+  assert(stackBucket(13.2) === 13 && stackBucket(17.4) === 17 && stackBucket(22) === 20 && stackBucket(75) === 80, 'nearest Study depth');
+  const d = (s, c, a) => ({ h: c + a + s, t: '1', sc: 'RFI', hp: 3, s, o: '2', a, c });
+  const r = analyzeDecisions([d(13, 'Kh9d', 'raise'), d(13, 'Kh9d', 'allin'), d(12, 'Kh9d', 'allin'), d(12, 'Kh9d', 'raise'), d(17, 'AhKd', 'raise')]);
+  const low = r.spots.find((s) => s.group === '≤15bb'), mid = r.spots.find((s) => s.group === '16–19bb');
+  assert(low && mid && low.n === 4 && mid.n === 1, 'spots: 10-15bb together, 16-19bb apart');
+  const g = Object.fromEntries(low.hands.map((x) => [x.d.h, x.grade]));
+  assert(g.Kh9draise13 === 'best' && g.Kh9dallin13 !== 'best' && g.Kh9dallin12 === 'best' && g.Kh9draise12 !== 'best', `K9o on the BTN: raise at 13bb, all-in at 12bb (${JSON.stringify(g)})`);
 });
 await test('D04', 'leakfinder grades rebuilt spots', () => {
   const ds = parseFile(PS_HANDS).hands.hands.flatMap((x) => extractDecisions(x).decisions);

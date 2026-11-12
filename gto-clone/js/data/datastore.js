@@ -14,9 +14,10 @@ import { hashStr } from '../engine/rng.js';
 //   even when it shows up in two files.
 const KEY = /[?&]test=1/.test(location.search) ? 'gtoc.data.test' : 'gtoc.data.v1';
 export const DATA_KEY = KEY;
+// v3: decisions keep the exact stack depth from 10 to 20bb (one chart per stack).
 // v2: Winamax uncalled bets and re-entries read from the hands. Hand records
 // are only rebuilt from the files, so older data asks for one re-import.
-const VERSION = 2;
+const VERSION = 3;
 const EMPTY = () => ({ v: VERSION, tournaments: {}, decisions: {}, hands: {}, sessions: [], screenNames: [], files: {} });
 const fingerprint = (text) => `${text.length}:${hashStr(text)}`;
 let db = load();
