@@ -27,18 +27,76 @@ const HALF = {
   bb: { r: ['R', 'C'], c: ['C', 'F'], a: ['A', 'C'], j: ['A', 'R'], q: ['C', 'C'] },
 };
 
-// A small 13x13 picture of a chart, colored by its codes. With onCell, each
-// cell is a button (the image reader's fixes).
-function MiniChart(c, onCell, cls = '') {
-  const colors = c.type === 'open' ? OPEN_COLORS : BB_COLORS;
-  return h('div.mini-chart' + (onCell ? '.edit' : '') + cls, onCell ? { role: 'group', 'aria-label': 'Aperçu modifiable' } : { role: 'img', 'aria-label': c.seat && c.stack ? chartLabel(c) : 'Aperçu' }, CLASSES.map((k) => {
-    const code = c.grid[k.row][k.col];
-    const half = HALF[c.type][code];
-    const bg = half ? `linear-gradient(90deg, ${colors[half[0]]} 50%, ${colors[half[1]]} 50%)` : colors[code];
-    return onCell
-      ? h('button', { type: 'button', title: `${k.name} : ${code}`, 'aria-label': `${k.name} : ${code}`, style: { background: bg }, on: { click: () => onCell(k.id) } }, h('span.mini-lbl', k.name))
-      : h('span', { style: { background: bg } });
-  }));
+// A cell's color for a code (a mixed code is half one color, half the other).
+function cellBg(type, code) {
+  const colors = type === 'open' ? OPEN_COLORS : BB_COLORS;
+  const half = HALF[type][code];
+  return half ? `linear-gradient(90deg, ${colors[half[0]]} 50%, ${colors[half[1]]} 50%)` : colors[code];
+}
+// Every code a cell can take, with its name: the brush's palette.
+const CODE_NAMES = {
+  open: { R: 'Raise', A: 'All-in', M: 'Limp', F: 'Fold', L: 'Loosifie', T: 'Tightfie', X: 'Raise / Tightfie', H: 'Raise / Limp', a: 'All-in / Limp', m: 'Limp / Fold' },
+  bb: { R: '3bet / raise', A: 'All-in', C: 'Call', K: 'Check', F: 'Fold', B: '3bet light', r: 'Raise / Call', c: 'Call / Fold', a: 'All-in / Call', j: 'All-in / Raise', n: 'Hors range' },
+};
+
+// A small 13x13 picture of a chart, colored by its codes. With a brush, it
+// is painted: press on a cell and drag over others, each cell under the
+// pointer takes the brush's code (mouse, pen or finger). brush: { code(),
+// start(), paint(idx), end() }.
+function MiniChart(c, brush, cls = '') {
+  if (!brush) {
+    return h('div.mini-chart' + cls, { role: 'img', 'aria-label': c.seat && c.stack ? chartLabel(c) : 'Aperçu' },
+      CLASSES.map((k) => h('span', { style: { background: cellBg(c.type, c.grid[k.row][k.col]) } })));
+  }
+  const label = (k, code) => `${k.name} : ${CODE_NAMES[c.type][code] || code}`;
+  const grid = h('div.mini-chart.edit' + cls, { role: 'group', 'aria-label': 'Charte à corriger : choisis une action, puis clique ou glisse sur les cases' },
+    CLASSES.map((k) => {
+      const code = c.grid[k.row][k.col];
+      return h('button', {
+        type: 'button', 'data-idx': k.id, title: label(k, code), 'aria-label': label(k, code), style: { background: cellBg(c.type, code) },
+        // Keyboard (Enter / Space on a focused cell): one cell at a time.
+        on: { click: (e) => { if (e.detail === 0) { brush.start(); paintEl(e.currentTarget); brush.end(); } } },
+      }, h('span.mini-lbl', k.name));
+    }));
+  function paintEl(el) {
+    const idx = +el.dataset.idx;
+    brush.paint(idx);
+    const code = brush.code();
+    el.style.background = cellBg(c.type, code);
+    el.title = el.ariaLabel = label(CLASSES[idx], code);
+    el.setAttribute('aria-label', label(CLASSES[idx], code));
+  }
+  let down = false, last = null;
+  const at = (x, y) => {
+    const el = document.elementFromPoint(x, y)?.closest?.('button[data-idx]');
+    if (el && grid.contains(el)) paintEl(el);
+  };
+  // A fast swipe reports few positions: every cell on the way between two
+  // of them is painted too (steps of a third of a cell).
+  const under = (e) => {
+    const p = [e.clientX, e.clientY];
+    if (last) {
+      const step = Math.max(2, grid.getBoundingClientRect().width / 13 / 3);
+      const n = Math.ceil(Math.hypot(p[0] - last[0], p[1] - last[1]) / step);
+      for (let k = 1; k < n; k++) at(last[0] + ((p[0] - last[0]) * k) / n, last[1] + ((p[1] - last[1]) * k) / n);
+    }
+    at(p[0], p[1]);
+    last = p;
+  };
+  grid.addEventListener('pointerdown', (e) => {
+    if (e.button > 0) return;
+    e.preventDefault();
+    down = true;
+    last = null;
+    try { grid.setPointerCapture(e.pointerId); } catch { /* not a live pointer */ }
+    brush.start();
+    under(e);
+  });
+  grid.addEventListener('pointermove', (e) => { if (down) under(e); });
+  const stop = () => { if (down) { down = false; brush.end(); } };
+  grid.addEventListener('pointerup', stop);
+  grid.addEventListener('pointercancel', stop);
+  return grid;
 }
 
 function download(name, text, type) {
@@ -203,6 +261,21 @@ function ImageEditor(it, { onDone, onClose }) {
   loadImage(it.file).then((img) => build(imageDataOf(img)), () => mount(el, h('p.warn', 'Image illisible.')));
   function build(data) {
     const st = { ...it.st, codes: it.st.codes.slice(), fixes: new Map(it.st.fixes), fromLegend: it.st.fromLegend.slice() };
+    if (!CELL_CODES[st.type].includes(st.brush)) st.brush = 'R';
+    // The brush: a stroke (press, drag, release) is one step for "Annuler".
+    const history = [];
+    let before = null;
+    const brush = {
+      code: () => st.brush,
+      start: () => { before = new Map(st.fixes); },
+      paint: (idx) => { st.fixes.set(idx, st.brush); },
+      end: () => {
+        const same = before.size === st.fixes.size && [...st.fixes].every(([k, v]) => before.get(k) === v);
+        if (!same) history.push(before);
+        before = null;
+        draw();
+      },
+    };
     const analyse = () => {
       // A new frame: colors already named keep their action (nearest old color).
       const prev = st.read.clusters.map((c, i) => [c.rgb, st.codes[i]]);
@@ -253,25 +326,30 @@ function ImageEditor(it, { onDone, onClose }) {
         h('div.img-wrap', canvas),
         h('p.small.muted', 'Le cadre jaune doit entourer exactement les 13 × 13 cases (de AA à 22). Sinon, clique-glisse sur l\'image pour le redessiner.'),
         h('div.row.gap.wrap',
-          sel('Chart', st.type, [['open', 'Open (first in)'], ['bb', 'BB']], (v) => { st.type = v; st.seat = null; st.touched = false; guess(st); st.fixes = new Map(); }),
+          sel('Chart', st.type, [['open', 'Open (first in)'], ['bb', 'BB']], (v) => { st.type = v; st.seat = null; st.touched = false; guess(st); st.fixes = new Map(); history.length = 0; if (!CELL_CODES[v].includes(st.brush)) st.brush = 'R'; }),
           sel('Position', st.seat, seats.map((s) => [s, SPOT_NAMES[st.type][s]]), (v) => { st.seat = v || null; if (!st.touched) guess(st); }),
           sel('Stack', st.stack, STACKS.slice().sort((a, b) => b - a).map((s) => [s, s + 'bb']), (v) => { st.stack = v ? +v : null; })),
         ocrNote(st.ocr),
         h('div.panel-title', 'Couleurs trouvées'),
         h('ul.color-list', st.read.clusters.map((c, i) => h('li',
           h('span.color-swatch', { style: { background: `rgb(${c.rgb.join(',')})` } }),
-          h('select', { 'aria-label': `Action de la couleur ${i + 1}`, on: { change: (e) => { st.codes[i] = e.target.value; st.touched = true; st.fixes = new Map(); draw(); } } },
+          h('select', { 'aria-label': `Action de la couleur ${i + 1}`, on: { change: (e) => { st.codes[i] = e.target.value; st.touched = true; draw(); } } },
             actions.map(([v, l]) => h('option', { value: v, selected: v === st.codes[i] }, l))),
           h('span.small.muted', `${c.count} demi-cases`),
           !st.touched && st.fromLegend[i] ? h('span.small.pos', `· légende « ${st.fromLegend[i].word} »`) : !st.touched ? h('span.small.warn', '· deviné, à vérifier') : null))),
         h('div.img-result',
-          MiniChart(chart, (idx) => {
-            const all = CELL_CODES[st.type], cur = chart.grid[Math.floor(idx / 13)][idx % 13];
-            st.fixes.set(idx, all[(all.indexOf(cur) + 1) % all.length]);
-            draw();
-          }),
-          h('div.small.muted', 'Aperçu. Clique une case pour changer son code (R raise, A all-in, F fold… voir le modèle). Une case à deux couleurs devient une case mixte.',
-            st.fixes.size ? h('div', `${st.fixes.size} case(s) corrigée(s) à la main.`) : null)),
+          MiniChart(chart, brush),
+          h('div.brush-panel',
+            h('div.panel-title', 'Pinceau'),
+            h('p.small.muted', 'Choisis une action, puis clique ou glisse sur les cases de la charte : chaque case touchée la prend.'),
+            h('div.brush-bar', { role: 'radiogroup', 'aria-label': 'Action du pinceau' }, CELL_CODES[st.type].split('').map((code) => h('button.brush-btn' + (code === st.brush ? '.on' : ''), {
+              type: 'button', role: 'radio', 'aria-checked': code === st.brush ? 'true' : 'false',
+              on: { click: () => { st.brush = code; draw(); } },
+            }, h('span.brush-swatch', { style: { background: cellBg(st.type, code) } }), CODE_NAMES[st.type][code]))),
+            h('div.row.gap.wrap',
+              h('button.btn.ghost.sm', { type: 'button', disabled: !history.length, on: { click: () => { st.fixes = history.pop(); draw(); } } }, '↶ Annuler le dernier coup'),
+              h('button.btn.ghost.sm', { type: 'button', disabled: !st.fixes.size, on: { click: () => { history.push(new Map(st.fixes)); st.fixes = new Map(); draw(); } } }, 'Effacer mes corrections')),
+            st.fixes.size ? h('div.small.muted', `${st.fixes.size} case${st.fixes.size > 1 ? 's' : ''} corrigée${st.fixes.size > 1 ? 's' : ''} au pinceau.`) : null)),
         h('div.row.end.gap',
           h('button.btn.ghost', { type: 'button', on: { click: onClose } }, 'Annuler'),
           h('button.btn.primary', {

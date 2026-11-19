@@ -709,3 +709,12 @@ h1 { font-size: 26px; }
 .mini-chart.thumb { width: 56px; gap: 0; border-width: 0; }
 .thumb-empty { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 4px; background: var(--surface); color: var(--text-muted); }
 @media (max-width: 600px) { .import-row { grid-template-columns: 44px 1fr; } .import-actions { grid-column: 1 / -1; justify-content: flex-end; } .mini-chart.thumb, .thumb-empty { width: 44px; } .thumb-empty { height: 44px; } }
+.mini-chart.edit { touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair; }
+.mini-chart.edit button { cursor: crosshair; }
+.brush-panel { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.brush-panel .panel-title, .brush-panel p { margin: 0; }
+.brush-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.brush-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 5px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+.brush-btn:hover { border-color: var(--text-muted); }
+.brush-btn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.brush-swatch { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .35); flex: none; }
