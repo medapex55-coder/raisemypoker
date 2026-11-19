@@ -693,3 +693,19 @@ h1 { font-size: 26px; }
 .mini-chart.edit button:hover, .mini-chart.edit button:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; z-index: 1; }
 .mini-lbl { position: absolute; inset: 0; display: grid; place-items: center; font-size: clamp(6px, 1.4vw, 9px); color: #fff; text-shadow: 0 0 2px #000; pointer-events: none; }
 .ocr-note { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.miss-tag.added { background: color-mix(in srgb, var(--success) 22%, transparent); border-color: var(--success); color: var(--success); font-weight: 700; }
+.badge.muted { background: var(--surface-2); color: var(--text-muted); }
+.import-list { display: flex; flex-direction: column; gap: var(--s2); }
+.import-head { display: flex; flex-direction: column; gap: var(--s2); }
+.import-progress { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs); color: var(--text-muted); }
+.import-progress progress { flex: 1; height: 8px; }
+.import-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow: auto; }
+.import-row { display: grid; grid-template-columns: 56px 1fr auto; gap: var(--s3); align-items: center; padding: 6px var(--s2); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid transparent; }
+.import-row.editing { border-color: var(--accent); }
+.import-row.added { border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+.import-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.import-info .badge { margin-left: var(--s2); }
+.import-actions { display: flex; gap: var(--s1); align-items: center; }
+.mini-chart.thumb { width: 56px; gap: 0; border-width: 0; }
+.thumb-empty { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 4px; background: var(--surface); color: var(--text-muted); }
+@media (max-width: 600px) { .import-row { grid-template-columns: 44px 1fr; } .import-actions { grid-column: 1 / -1; justify-content: flex-end; } .mini-chart.thumb, .thumb-empty { width: 44px; } .thumb-empty { height: 44px; } }

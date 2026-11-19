@@ -29,7 +29,7 @@ function save() {
   for (const f of listeners) f();
 }
 
-export const onUserCharts = (f) => listeners.add(f);
+export const onUserCharts = (f) => { listeners.add(f); return () => listeners.delete(f); };
 export const getUserCharts = () => charts.slice();
 export const chartLabel = (c) => (c.type === 'open' ? `Open ${c.seat}` : BB_TITLES[c.seat] || `BB vs open ${c.seat}`) + ` · ${c.stack}bb`;
 const sameSlot = (a, b) => a.type === b.type && a.seat === b.seat && a.stack === b.stack;

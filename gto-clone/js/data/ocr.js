@@ -77,12 +77,14 @@ async function read(img, rect) {
   const words = a.words;
   if (blocks.length) {
     const b = await page(true);
-    // Its words that the first read missed or garbled ('"Fold' -> 'Fold').
-    for (const wb of b.words) {
-      const hit = words.findIndex((wa) => overlaps(wa, wb));
-      if (hit < 0) words.push(wb);
-      else if (/^[^A-Za-z0-9]/.test(words[hit].text) && /^[A-Za-z0-9]/.test(wb.text)) words[hit] = wb;
+    // A first-read word that runs over a swatch is garbled ('"Fold', '3bet'
+    // read 'Bet'): the second read's words replace it. Words the first read
+    // missed are added.
+    const onBlock = (wd) => blocks.some((bl) => overlaps(wd, bl));
+    for (let i = words.length - 1; i >= 0; i--) {
+      if (onBlock(words[i]) && b.words.some((wb) => overlaps(words[i], wb))) words.splice(i, 1);
     }
+    for (const wb of b.words) if (!words.some((wa) => overlaps(wa, wb))) words.push(wb);
   }
 
   // 2. Each colored box outside the grid (a legend button, a title banner),
