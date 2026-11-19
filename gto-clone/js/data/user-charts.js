@@ -152,14 +152,25 @@ const seatIn = (s) => {
   for (const [re, seat] of SEAT_WORDS) { const m = s.match(re); if (m && (!best || m.index < best.i)) best = { i: m.index, seat }; }
   return best?.seat || null;
 };
+const STACK_RE = /(\d{1,3}(?:[.,]\d)?)\s*BB\b/g;
+// One line, upper case, OCR slips fixed: "2O BB", "l5bb" -> "20 BB", "15bb".
+const cleanLine = (l) => ' ' + l.toUpperCase().replace(/[|_]+/g, ' ').replace(/\s+/g, ' ')
+  .replace(/([0-9OIL]{1,3})(?=\s*BB\b)/g, (m) => (/\d/.test(m) ? m.replace(/O/g, '0').replace(/[IL]/g, '1') : m))
+  .replace(/\bBIG\s*BLIND\b|\bGROSSE\s*BLINDE\b/g, 'BB') + ' ';
+// Stacks written on a line; under 8bb it is a bet size ("Raise 3bb"), not a stack.
+const stacksIn = (l) => [...l.matchAll(STACK_RE)].map((m) => +m[1].replace(',', '.')).filter((v) => v >= 8);
+// "BB" left once every "20bb" is gone: the seat, not the unit.
+const noStacks = (l) => l.replace(STACK_RE, ' ');
+
 export function spotFromText(raw) {
-  let s = ' ' + String(raw).toUpperCase().replace(/[\r\n|_]+/g, ' ').replace(/\s+/g, ' ') + ' ';
-  // "2O BB", "l5bb" -> "20 BB", "15bb"
-  s = s.replace(/([0-9OIL]{1,3})(?=\s*BB\b)/g, (m) => (/\d/.test(m) ? m.replace(/O/g, '0').replace(/[IL]/g, '1') : m));
-  s = s.replace(/\bBIG\s*BLIND\b|\bGROSSE\s*BLINDE\b/g, 'BB');
-  const st = s.match(/(\d{1,3}(?:[.,]\d)?)\s*BB\b/);
-  const stack = st ? Math.round(+st[1].replace(',', '.')) : null;
-  const t = st ? s.replace(st[0], ' ') : s; // the stack's "bb" is not the BB seat
+  const lines = String(raw).split(/\r?\n/).map(cleanLine).filter((l) => l.trim());
+  // The title: the first line naming a position (or the BB facing something);
+  // spot and stack come from it. Without one, from the whole text.
+  const isTitle = (l) => seatIn(noStacks(l)) || /\bBB\b.*\b(VS|LIMP)/.test(noStacks(l));
+  const title = lines.find((l) => isTitle(l) && stacksIn(l).length) || lines.find(isTitle);
+  const all = lines.join(' ');
+  const stack = Math.round((title && stacksIn(title)[0]) || stacksIn(all)[0] || 0) || null;
+  const t = noStacks(title || all);
   let type = null, seat = null;
   const vs = t.match(/\bVS\.?\b|\bV\.S\.?\b|\bVERSUS\b|\bFACING\b|\bFACE\s*(A|À)\b|\bCONTRE\b|\bDEF(ENSE|ENCE)?\b/);
   if (/\bBB\b/.test(t) && (vs || /\bLIMP/.test(t))) {

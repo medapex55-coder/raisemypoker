@@ -14,7 +14,7 @@ import { addSolution } from './engine/solutions.js';
 import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine } from './engine/strategy.js';
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
 import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText } from './data/user-charts.js';
-import { detectGrid, sampleCells, clusterColors, gridFrom, imageDataOf } from './data/chart-image.js';
+import { detectGrid, sampleCells, clusterColors, gridFrom, imageDataOf, legendEntries, legendType, legendCodes, colorBoxes } from './data/chart-image.js';
 import { icmEquities, bubbleFactor, requiredEquity } from './engine/icm.js';
 import { gradeDecision } from './ui/practice.js';
 import { prizeLadder, splitPots, createTournament, fieldAt, heroBubbleFactor, tournamentReport, nextHand, settleHand } from './data/tournament.js';
@@ -376,11 +376,42 @@ await test('U24-T', 'text read on a chart image gives its spot and stack (OCR sl
     'HJ RFI l5bb': 'open HJ 15', 'UTG 100BB': 'open LJ 100', 'BB vs BTN 25bb': 'bb BTN 25', 'BB vs CO\n25 bb': 'bb CO 25',
     'Big Blind vs SB limp 20bb': 'bb vsLimp 20', 'BB vs SB limp-raise 25bb': 'bb vsLimp3bet 25', 'BB vs SB limp shove 20bb': 'bb vsLimpShove 20',
     '6-max MTT · SB open · 19bb': 'open SB 19',
+    // The title wins over the legend: bet sizes are not stacks, a legend "Limp" is not "BB vs limp".
+    'B Raise 3bb\nBl Limp\n"Fold\n\nSB-Open-19BB': 'open SB 19', 'BB vs BTN 25bb\nRaise\nCall\nLimp\nFold': 'bb BTN 25', 'Raise 2.5bb\nFold\nBTN open\n40bb': 'open BTN 40',
   };
   for (const [text, want] of Object.entries(cases)) {
     const f = spotFromText(text);
     assert(`${f.type} ${f.seat} ${f.stack}` === want, `« ${text} » -> ${f.type} ${f.seat} ${f.stack}, attendu ${want}`);
   }
+});
+await test('U24-L', 'chart legend: each word takes the color of its swatch or of its box, colors get their action, the legend tells open from BB', () => {
+  const c = document.createElement('canvas'); c.width = 700; c.height = 200;
+  const x = c.getContext('2d');
+  x.fillStyle = '#14161c'; x.fillRect(0, 0, 700, 200);
+  const sw = { R: [192, 57, 43], F: [189, 195, 199], C: [22, 160, 133], B: [211, 84, 0] };
+  const rgb = (k) => `rgb(${sw[k].join(',')})`;
+  // Swatch legend: [■] Raise   [■] Fold (the next entry's swatch must not count).
+  x.fillStyle = rgb('R'); x.fillRect(20, 20, 26, 26); x.fillStyle = rgb('F'); x.fillRect(150, 20, 26, 26);
+  // Box legend: "Call" and "3bet light" written inside their colored box.
+  x.fillStyle = rgb('C'); x.fillRect(20, 100, 80, 40); x.fillStyle = rgb('B'); x.fillRect(130, 100, 140, 40);
+  const img = x.getImageData(0, 0, 700, 200);
+  const words = [
+    { text: 'Raise', x0: 56, y0: 24, x1: 110, y1: 42, line: 'Raise Fold' },
+    { text: 'Fold', x0: 186, y0: 24, x1: 225, y1: 42, line: 'Raise Fold' },
+    { text: 'Call', x0: 34, y0: 110, x1: 80, y1: 130, rgb: sw.C },
+    { text: '3bet', x0: 142, y0: 110, x1: 190, y1: 130, rgb: sw.B },
+    { text: 'light', x0: 198, y0: 110, x1: 250, y1: 130, rgb: sw.B },
+    { text: 'CO', x0: 400, y0: 20, x1: 430, y1: 40, line: 'BB vs CO 25bb' }, // the title is not legend
+  ];
+  const e = legendEntries(img, words);
+  const got = Object.fromEntries(e.map((en) => [en.action, en.colors[0].join(',')]));
+  assert(got.raise === sw.R.join(',') && got.fold === sw.F.join(',') && got.call === sw.C.join(',') && got.light === sw.B.join(','), JSON.stringify(got));
+  assert(legendType(e) === 'bb', 'call and 3bet light: a BB chart');
+  const clusters = [{ rgb: [190, 60, 45] }, { rgb: [20, 158, 130] }, { rgb: [100, 100, 255] }];
+  const codes = legendCodes(e, clusters, 'bb');
+  assert(codes[0]?.code === 'R' && codes[1]?.code === 'C' && codes[2] === null, JSON.stringify(codes));
+  const boxes = colorBoxes(img, null);
+  assert(boxes.length === 2 && boxes.every((b) => b.y0 >= 98), `two text boxes, not the square swatches: ${JSON.stringify(boxes)}`);
 });
 
 await test('D01', 'PokerStars summary: buy-in, players, prize pool, place, prize, re-entry', () => {

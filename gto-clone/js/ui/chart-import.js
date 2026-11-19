@@ -7,7 +7,7 @@ import {
   parseChartText, addUserCharts, getUserCharts, removeUserChart, clearUserCharts, chartLabel, TEMPLATE, exportJson, OPEN_SEATS, BB_VS, guessSpot, spotFromText, validate,
 } from '../data/user-charts.js';
 import {
-  detectGrid, sampleCells, clusterColors, guessCode, gridFrom, imageDataOf, OPEN_ACTIONS, BB_ACTIONS, CELL_CODES,
+  detectGrid, sampleCells, clusterColors, guessCode, gridFrom, imageDataOf, OPEN_ACTIONS, BB_ACTIONS, CELL_CODES, legendEntries, legendType, legendCodes,
 } from '../data/chart-image.js';
 import { STACKS } from '../engine/game.js';
 import { readText } from '../data/ocr.js';
@@ -81,8 +81,17 @@ function ImageEditor(file, img, { onAdd, onClose }) {
   const spot = guessSpot(file.name);
   const st = { type: spot.type || 'open', seat: spot.seat, stack: STACKS.includes(spot.stack) ? spot.stack : null, rect: detectGrid(data), fixes: new Map() };
   let read, codes, touched = false, userSpot = false;
-  // Only the SB limps first in: elsewhere a green is a Loosifie.
-  const guess = () => { codes = read.clusters.map((c) => { const k = guessCode(c.rgb, st.type); return k === 'M' && st.seat && st.seat !== 'SB' ? 'L' : k; }); };
+  // Each color's action: from the chart's legend when it was read, else a
+  // guess from the hue (only the SB limps first in: elsewhere green is Loosifie).
+  let fromLegend = [];
+  const guess = () => {
+    fromLegend = st.legend ? legendCodes(st.legend, read.clusters, st.type) : [];
+    codes = read.clusters.map((c, i) => {
+      if (fromLegend[i]) return fromLegend[i].code;
+      const k = guessCode(c.rgb, st.type);
+      return k === 'M' && st.seat && st.seat !== 'SB' ? 'L' : k;
+    });
+  };
   // A new frame: colors the user already named keep their action (nearest old color).
   const analyse = () => {
     const prev = read && touched ? read.clusters.map((c, i) => [c.rgb, codes[i]]) : null;
@@ -147,7 +156,8 @@ function ImageEditor(file, img, { onAdd, onClose }) {
         h('span.color-swatch', { style: { background: `rgb(${c.rgb.join(',')})` } }),
         h('select', { 'aria-label': `Action de la couleur ${i + 1}`, on: { change: (e) => { codes[i] = e.target.value; touched = true; st.fixes = new Map(); draw(); } } },
           actions.map(([v, l]) => h('option', { value: v, selected: v === codes[i] }, l))),
-        h('span.small.muted', `${c.count} demi-cases`)))),
+        h('span.small.muted', `${c.count} demi-cases`),
+        !touched && fromLegend[i] ? h('span.small.pos', `· légende « ${fromLegend[i].word} »`) : !touched && st.ocr ? h('span.small.warn', '· deviné, à vérifier') : null))),
       h('div.img-result',
         MiniChart(chart, (idx) => {
           const all = CELL_CODES[st.type], cur = chart.grid[Math.floor(idx / 13)][idx % 13];
@@ -165,17 +175,22 @@ function ImageEditor(file, img, { onAdd, onClose }) {
 
   // Read the spot written on the image (its title). What the image says wins
   // over the file name, but never over a menu the user already changed.
-  readText(data, st.rect).then((text) => {
+  readText(data, st.rect).then(({ text, words }) => {
     const found = spotFromText(text);
+    st.legend = legendEntries(data, words);
+    if (!found.type) found.type = legendType(st.legend);
+    // A stack the app doesn't have (22bb): the nearest one.
+    if (found.stack && !STACKS.includes(found.stack)) found.near = STACKS.reduce((b, s) => (Math.abs(s - found.stack) < Math.abs(b - found.stack) ? s : b));
     const lines = text.split('\n').map((l) => l.trim()).filter((l) => /[a-z0-9]{2}/i.test(l));
-    const line = lines.find((l) => /\d\s*bb|open|rfi|vs/i.test(l)) || lines[0] || '';
+    const line = lines.find((l) => spotFromText(l).seat && spotFromText(l).stack) || lines.find((l) => spotFromText(l).seat) || lines.find((l) => /\d\s*bb|open|rfi|vs/i.test(l)) || lines[0] || '';
     st.ocr = { status: found.seat || found.stack ? 'done' : 'none', line: line.slice(0, 60), found };
     if (!userSpot) {
-      if (found.type && found.type !== st.type) { st.type = found.type; st.seat = null; if (!touched) guess(); st.fixes = new Map(); }
-      if (found.seat && (found.type || st.type) === st.type && (st.type === 'open' ? OPEN_SEATS : BB_VS).includes(found.seat)) st.seat = found.seat;
-      if (STACKS.includes(found.stack)) st.stack = found.stack;
-      if (!touched) guess();
+      if (found.type && found.type !== st.type) { st.type = found.type; st.seat = null; st.fixes = new Map(); }
+      if (found.seat && (st.type === 'open' ? OPEN_SEATS : BB_VS).includes(found.seat)) st.seat = found.seat;
+      if (found.stack) st.stack = found.near || found.stack;
     }
+    if (!touched) guess();
+    st.ocr.legend = fromLegend.filter(Boolean).length;
     draw();
   }, (e) => { st.ocr = { status: 'error', line: e.message }; draw(); });
   return el;
@@ -183,13 +198,14 @@ function ImageEditor(file, img, { onAdd, onClose }) {
 
 // What the text reading found, under the menus.
 function ocrNote(o) {
-  if (!o) return h('p.small.muted.ocr-note', h('span.spinner.sm'), ' Lecture du spot et du stack écrits sur l\'image…');
-  if (o.status === 'error') return h('p.small.muted.ocr-note', `Lecture du texte impossible (${o.line}) : choisis le spot et le stack.`);
-  if (o.status === 'none') return h('p.small.muted.ocr-note', 'Aucun spot ni stack lisible sur l\'image', o.line ? ` (lu : « ${o.line} »)` : '', ' : choisis-les.');
+  if (!o) return h('p.small.muted.ocr-note', h('span.spinner.sm'), ' Lecture de la charte (spot, stack, légende)…');
+  if (o.status === 'error') return h('p.small.muted.ocr-note', `Lecture du texte impossible (${o.line}) : choisis le spot, le stack et l'action de chaque couleur.`);
+  const legend = o.legend ? ` · légende : ${o.legend} couleur${o.legend > 1 ? 's' : ''} reconnue${o.legend > 1 ? 's' : ''}` : ' · pas de légende lisible : actions devinées d\'après les couleurs';
+  if (o.status === 'none') return h('p.small.muted.ocr-note', 'Aucun spot ni stack lisible sur l\'image', o.line ? ` (lu : « ${o.line} »)` : '', ' : choisis-les', legend + '.');
   const f = o.found;
-  const parts = [f.seat ? SPOT_NAMES[f.type || 'open']?.[f.seat] || f.seat : f.type === 'bb' ? 'BB' : f.type === 'open' ? 'Open' : null, f.stack && f.stack + 'bb'].filter(Boolean);
+  const parts = [f.seat ? SPOT_NAMES[f.type || 'open']?.[f.seat] || f.seat : f.type === 'bb' ? 'BB' : f.type === 'open' ? 'Open' : null, f.stack && (f.near || f.stack) + 'bb'].filter(Boolean);
   return h('p.small.ocr-note', '✓ Lu sur l\'image : ', h('strong', `« ${o.line} »`), ` → ${parts.join(' · ')}`,
-    f.stack && !STACKS.includes(f.stack) ? h('span.muted', ` (${f.stack}bb n'est pas un stack de l'appli : choisis le plus proche)`) : null);
+    f.near ? h('span.muted', ` (${f.stack}bb n'existe pas dans l'appli : ${f.near}bb, le plus proche)`) : null, legend);
 }
 
 export function openChartImport(onChange) {
