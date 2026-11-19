@@ -13,7 +13,8 @@ import { createParallelSolver } from './engine/solver-parallel.js';
 import { addSolution } from './engine/solutions.js';
 import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine } from './engine/strategy.js';
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
-import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText } from './data/user-charts.js';
+import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText, userChartsReady } from './data/user-charts.js';
+import { idbGet } from './data/idb.js';
 import { detectGrid, sampleCells, clusterColors, gridFrom, imageDataOf, legendEntries, legendType, legendCodes, colorBoxes } from './data/chart-image.js';
 import { icmEquities, bubbleFactor, requiredEquity } from './engine/icm.js';
 import { gradeDecision } from './ui/practice.js';
@@ -382,6 +383,24 @@ await test('U24-T', 'text read on a chart image gives its spot and stack (OCR sl
   for (const [text, want] of Object.entries(cases)) {
     const f = spotFromText(text);
     assert(`${f.type} ${f.seat} ${f.stack}` === want, `« ${text} » -> ${f.type} ${f.seat} ${f.stack}, attendu ${want}`);
+  }
+});
+await test('U24-P', 'charts added to the solver are saved in IndexedDB too: a full localStorage does not lose them', async () => {
+  await userChartsReady;
+  const saved = getUserCharts();
+  const realSet = Storage.prototype.setItem;
+  try {
+    // localStorage full: every write refused.
+    Storage.prototype.setItem = function () { throw new DOMException('quota', 'QuotaExceededError'); };
+    clearUserCharts();
+    addUserCharts([{ type: 'open', seat: 'HJ', stack: 40, grid: Array(13).fill('RRRRRRFFFFFFF') }]);
+    Storage.prototype.setItem = realSet;
+    await sleep(150);
+    const rec = await idbGet('rmp.userCharts.v1');
+    assert(rec && rec.charts.length === 1 && rec.charts[0].seat === 'HJ' && rec.charts[0].stack === 40, `IndexedDB copy: ${JSON.stringify(rec)}`);
+  } finally {
+    Storage.prototype.setItem = realSet;
+    clearUserCharts(); addUserCharts(saved);
   }
 });
 await test('U24-L', 'chart legend: each word takes the color of its swatch or of its box, colors get their action, the legend tells open from BB', () => {

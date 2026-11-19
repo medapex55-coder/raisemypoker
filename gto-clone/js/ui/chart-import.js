@@ -18,6 +18,7 @@ import {
 } from '../data/chart-image.js';
 import { STACKS } from '../engine/game.js';
 import { readText } from '../data/ocr.js';
+import { idbGet, idbSet } from '../data/idb.js';
 import { hasChart } from '../engine/strategy.js';
 
 const OPEN_COLORS = { R: 'var(--act-bet-m)', A: 'var(--act-allin)', M: 'var(--act-call)', F: 'var(--act-fold)', L: 'var(--tag-loose)', T: 'var(--tag-tight)' };
@@ -207,12 +208,33 @@ function problemsOf(st, checked) {
   return p;
 }
 
-// ---------- the import list (kept while the page is open) ----------
+// ---------- the import list ----------
+// Kept in IndexedDB with its screenshots: a reload or another tab finds the
+// same rows (and "Vérifier" still opens the image). A row being read when the
+// page closed is read again.
+const LIST_KEY = 'chartImportList';
 let nextId = 1;
 const list = [];
 const listeners = new Set();
-const changed = () => { for (const f of listeners) f(); };
+let saveTimer = null;
+const changed = () => {
+  for (const f of listeners) f();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => idbSet(LIST_KEY, list.map(({ id, name, kind, status, chart, problems, error, st, file }) => ({
+    id, name, kind, status: status === 'reading' ? 'waiting' : status, chart, problems, error, st, file,
+  }))), 300);
+};
 let pumping = false;
+idbGet(LIST_KEY).then((rows) => {
+  if (!Array.isArray(rows) || !rows.length || list.length) return;
+  list.push(...rows);
+  nextId = Math.max(...rows.map((r) => r.id)) + 1;
+  changed();
+  pump();
+});
+
+// Neither localStorage nor IndexedDB could save the solver's charts.
+window.addEventListener('rmp:charts-not-saved', () => toast('Attention : le navigateur refuse d\'enregistrer tes chartes (stockage plein ou bloqué). Elles seront perdues au rechargement.'));
 
 function addFiles(files) {
   for (const f of files) {

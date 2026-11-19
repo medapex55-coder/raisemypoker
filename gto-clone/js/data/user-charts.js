@@ -6,6 +6,7 @@
 // Same 13x13 layout and codes as the built-in charts (charts-50.js, charts-short.js).
 import { CLASS_BY_NAME, RANKS } from '../engine/cards.js';
 import { STACKS } from '../engine/game.js';
+import { idbGet, idbSet, keepStorage } from './idb.js';
 
 const KEY = 'rmp.userCharts.v1';
 export const OPEN_SEATS = ['LJ', 'HJ', 'CO', 'BTN', 'SB'];
@@ -15,17 +16,47 @@ export const BB_CODES_OK = 'FCRBKcrAajqn';
 const BB_TITLES = { vsLimp: 'BB vs limp SB', vsLimp3bet: 'BB vs limp-relance SB', vsLimpShove: 'BB vs limp-tapis SB' };
 const BB_RAISE = { vsLimp: 'Raise', vsLimp3bet: 'Tapis', vsLimpShove: 'Tapis' };
 
-let charts = load();
+// Saved twice: in localStorage (read at once when the page opens) and in
+// IndexedDB (room to spare: localStorage can be full of hand histories, and
+// then a chart would only live until the next reload). The most recent copy
+// wins when the page opens. A stored chart this version can't read is kept
+// aside and written back, never dropped.
+const AT_KEY = KEY + '.at';
+let charts = [];
+let kept = []; // stored entries that don't validate
+let at = 0; // when charts last changed
 const listeners = new Set();
 
-function load() {
-  try {
-    const list = JSON.parse(localStorage.getItem(KEY) || '[]');
-    return Array.isArray(list) ? list.filter((c) => validate(c).ok) : [];
-  } catch { return []; }
+function split(list) {
+  const ok = [], bad = [];
+  for (const c of Array.isArray(list) ? list : []) (validate(c).ok ? ok : bad).push(c);
+  return [ok, bad];
 }
+try {
+  [charts, kept] = split(JSON.parse(localStorage.getItem(KEY) || '[]'));
+  at = +localStorage.getItem(AT_KEY) || 0;
+} catch { /* blocked storage: IndexedDB below */ }
+
+// The IndexedDB copy, when it is the more recent one.
+export const userChartsReady = idbGet(KEY).then((rec) => {
+  if (rec && Array.isArray(rec.charts) && rec.at > at) {
+    [charts, kept] = split(rec.charts);
+    at = rec.at;
+    try { localStorage.setItem(KEY, JSON.stringify([...charts, ...kept])); localStorage.setItem(AT_KEY, String(at)); } catch { /* full */ }
+    for (const f of listeners) f();
+  } else if (charts.length || kept.length) idbSet(KEY, { charts: [...charts, ...kept], at });
+});
+
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(charts)); } catch { /* storage full or blocked */ }
+  at = Date.now();
+  const all = [...charts, ...kept];
+  let local = true;
+  try { localStorage.setItem(KEY, JSON.stringify(all)); localStorage.setItem(AT_KEY, String(at)); } catch { local = false; }
+  keepStorage();
+  idbSet(KEY, { charts: all, at }).then((ok) => {
+    // Neither copy written: the charts would be gone after a reload.
+    if (!ok && !local) window.dispatchEvent(new CustomEvent('rmp:charts-not-saved'));
+  });
   for (const f of listeners) f();
 }
 
@@ -40,7 +71,7 @@ export function addUserCharts(list) {
   save();
 }
 export function removeUserChart(c) { charts = charts.filter((o) => !sameSlot(o, c)); save(); }
-export function clearUserCharts() { charts = []; save(); }
+export function clearUserCharts() { charts = []; kept = []; save(); }
 
 // Lookups used by the strategy engine.
 export function userOpenChart(seat, stack) {

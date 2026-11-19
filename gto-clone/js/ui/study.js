@@ -18,7 +18,7 @@ import { getSettings, setSetting } from '../store.js';
 import { TAG_NAMES } from '../data/open-charts.js';
 import { solverPanel } from './solverpanel.js';
 import { openChartImport } from './chart-import.js';
-import { getUserCharts, isUserOpen } from '../data/user-charts.js';
+import { getUserCharts, isUserOpen, onUserCharts } from '../data/user-charts.js';
 import { pendingAt } from '../engine/solutions.js';
 import { comboShare } from '../engine/pushfold.js';
 import { scenarioReport, requiredEquity, riskPremium, STAGE_SCENARIOS, stageBubbleFactor, MAX_PLAYERS } from '../engine/icm.js';
@@ -751,3 +751,7 @@ export function studyKey(e) {
 }
 
 export function rerenderStudy() { render(); }
+
+// Your charts changed (added, removed, or loaded from storage when the page
+// opens): Étude shows them at once.
+onUserCharts(() => { if (root?.isConnected) render(); });
