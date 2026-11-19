@@ -1,7 +1,7 @@
 // In-browser test suite (no Node on this machine, so no Playwright).
 // Unit tests for the engine, then flow tests that drive the real app in an
 // iframe using roles and labels. Open /tests.html; results land in #summary.
-import { parseCard, COMBOS, CLASS_BY_NAME, comboIndex, cardStr } from './engine/cards.js';
+import { parseCard, COMBOS, CLASSES, CLASS_BY_NAME, comboIndex, cardStr } from './engine/cards.js';
 import { evalHand, classify } from './engine/evaluator.js';
 import { rangeEquity, weightedMean } from './engine/equity.js';
 import { levelOf, streakOf } from './data/progress.js';
@@ -13,7 +13,8 @@ import { createParallelSolver } from './engine/solver-parallel.js';
 import { addSolution } from './engine/solutions.js';
 import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine } from './engine/strategy.js';
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
-import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE } from './data/user-charts.js';
+import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText } from './data/user-charts.js';
+import { detectGrid, sampleCells, clusterColors, gridFrom, imageDataOf } from './data/chart-image.js';
 import { icmEquities, bubbleFactor, requiredEquity } from './engine/icm.js';
 import { gradeDecision } from './ui/practice.js';
 import { prizeLadder, splitPots, createTournament, fieldAt, heroBubbleFactor, tournamentReport, nextHand, settleHand } from './data/tournament.js';
@@ -336,6 +337,50 @@ await test('U24-Y', 'imported charts: text and JSON parse, then replace the open
     const nb = analyze(bb);
     assert(freq(nb, 'KK', 'call') === 1 && freq(nb, 'AA', 'raise') === 1, 'BB plays the imported chart');
   } finally { clearUserCharts(); addUserCharts(saved); }
+});
+await test('U24-Z', 'chart screenshots (.png, .jpg): grid found, colors grouped, every cell read, spot guessed from the file name', async () => {
+  const { OPEN_CHARTS } = await import('./data/open-charts.js');
+  const COL = { R: [232, 96, 60], T: [74, 144, 226], F: [43, 58, 85], L: [46, 204, 113] };
+  const c = document.createElement('canvas'); c.width = 820; c.height = 900;
+  const x = c.getContext('2d');
+  x.fillStyle = '#14161c'; x.fillRect(0, 0, 820, 900);
+  x.fillStyle = '#fff'; x.font = 'bold 28px sans-serif'; x.fillText('CO open 100bb', 40, 50);
+  const cs = 700 / 13, rgb = (k) => `rgb(${COL[k].join(',')})`;
+  CLASSES.forEach((cl) => {
+    const code = OPEN_CHARTS.CO[cl.row][cl.col], px = 40 + cl.col * cs, py = 90 + cl.row * cs;
+    if (code === 'X') { x.fillStyle = rgb('R'); x.fillRect(px, py, cs / 2, cs - 2); x.fillStyle = rgb('T'); x.fillRect(px + cs / 2, py, cs / 2 - 2, cs - 2); }
+    else { x.fillStyle = rgb(code); x.fillRect(px, py, cs - 2, cs - 2); }
+    x.fillStyle = '#fff'; x.font = '13px sans-serif'; x.fillText(cl.name, px + 6, py + 18);
+  });
+  x.fillStyle = rgb('R'); x.fillRect(40, 820, 120, 24); // a legend under the grid
+  const jpg = new Image(); jpg.src = c.toDataURL('image/jpeg', 0.75); await jpg.decode();
+  for (const [name, data] of [['png', c.getContext('2d').getImageData(0, 0, 820, 900)], ['jpg', imageDataOf(jpg)]]) {
+    const rect = detectGrid(data);
+    assert(Math.abs(rect.x0 - 40) <= 3 && Math.abs(rect.y0 - 90) <= 3 && Math.abs(rect.x1 - 740) <= 4 && Math.abs(rect.y1 - 790) <= 4, `${name}: grid at ${JSON.stringify(rect)}`);
+    const r = clusterColors(sampleCells(data, rect));
+    assert(r.clusters.length === 4, `${name}: 4 colors, got ${r.clusters.length}`);
+    const codes = r.clusters.map((cl) => Object.entries(COL).reduce((b, [k, v]) => (Math.hypot(...v.map((t, i) => t - cl.rgb[i])) < b[1] ? [k, Math.hypot(...v.map((t, i) => t - cl.rgb[i]))] : b), ['?', 1e9])[0]);
+    const g = gridFrom('open', r.of, codes);
+    const bad = g.flatMap((row, i) => [...row].map((ch, j) => (ch === OPEN_CHARTS.CO[i][j] ? null : CLASSES[i * 13 + j].name))).filter(Boolean);
+    assert(!bad.length, `${name}: wrong cells ${bad.join(' ')}`);
+  }
+  const s = (n) => JSON.stringify(guessSpot(n));
+  assert(s('BB vs CO 25bb.png') === JSON.stringify({ type: 'bb', seat: 'CO', stack: 25 }), s('BB vs CO 25bb.png'));
+  assert(s('open_BTN_30bb.jpg') === JSON.stringify({ type: 'open', seat: 'BTN', stack: 30 }), s('open_BTN_30bb.jpg'));
+  assert(guessSpot('SB 19bb.jpeg').seat === 'SB' && guessSpot('SB 19bb.jpeg').type === 'open', s('SB 19bb.jpeg'));
+  assert(guessSpot('BB vs limp 20bb.png').seat === 'vsLimp', s('BB vs limp 20bb.png'));
+});
+await test('U24-T', 'text read on a chart image gives its spot and stack (OCR slips fixed)', () => {
+  const cases = {
+    'CO open 20bb': 'open CO 20', 'Cutoff RFI 20 BB': 'open CO 20', 'Button - Open - 30BB': 'open BTN 30', 'SB open 2Obb': 'open SB 20',
+    'HJ RFI l5bb': 'open HJ 15', 'UTG 100BB': 'open LJ 100', 'BB vs BTN 25bb': 'bb BTN 25', 'BB vs CO\n25 bb': 'bb CO 25',
+    'Big Blind vs SB limp 20bb': 'bb vsLimp 20', 'BB vs SB limp-raise 25bb': 'bb vsLimp3bet 25', 'BB vs SB limp shove 20bb': 'bb vsLimpShove 20',
+    '6-max MTT · SB open · 19bb': 'open SB 19',
+  };
+  for (const [text, want] of Object.entries(cases)) {
+    const f = spotFromText(text);
+    assert(`${f.type} ${f.seat} ${f.stack}` === want, `« ${text} » -> ${f.type} ${f.seat} ${f.stack}, attendu ${want}`);
+  }
 });
 
 await test('D01', 'PokerStars summary: buy-in, players, prize pool, place, prize, re-entry', () => {

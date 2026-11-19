@@ -139,6 +139,61 @@ function parseHeader(line) {
   return null;
 }
 
+// The spot written on a chart image, from the text read on it (OCR): titles
+// like "CO open 20bb", "Cutoff RFI 20 BB", "BB vs BTN 25bb", "Big Blind vs
+// SB limp 20bb", "Button - Open - 30BB". { type, seat, stack, text } or null
+// parts. OCR slips in numbers (O for 0, l for 1) are fixed before "bb".
+const SEAT_WORDS = [
+  [/\b(CUT\s*-?\s*OFF|CUTOFF|CO)\b/, 'CO'], [/\b(BUTTON|BOUTON|BTN|BU)\b/, 'BTN'], [/\b(HI\s*-?\s*JACK|HIJACK|HJ|MP)\b/, 'HJ'],
+  [/\b(LO\s*-?\s*JACK|LOJACK|LJ|UTG)\b/, 'LJ'], [/\b(SMALL\s*BLIND|PETITE\s*BLINDE|SB)\b/, 'SB'],
+];
+const seatIn = (s) => {
+  let best = null;
+  for (const [re, seat] of SEAT_WORDS) { const m = s.match(re); if (m && (!best || m.index < best.i)) best = { i: m.index, seat }; }
+  return best?.seat || null;
+};
+export function spotFromText(raw) {
+  let s = ' ' + String(raw).toUpperCase().replace(/[\r\n|_]+/g, ' ').replace(/\s+/g, ' ') + ' ';
+  // "2O BB", "l5bb" -> "20 BB", "15bb"
+  s = s.replace(/([0-9OIL]{1,3})(?=\s*BB\b)/g, (m) => (/\d/.test(m) ? m.replace(/O/g, '0').replace(/[IL]/g, '1') : m));
+  s = s.replace(/\bBIG\s*BLIND\b|\bGROSSE\s*BLINDE\b/g, 'BB');
+  const st = s.match(/(\d{1,3}(?:[.,]\d)?)\s*BB\b/);
+  const stack = st ? Math.round(+st[1].replace(',', '.')) : null;
+  const t = st ? s.replace(st[0], ' ') : s; // the stack's "bb" is not the BB seat
+  let type = null, seat = null;
+  const vs = t.match(/\bVS\.?\b|\bV\.S\.?\b|\bVERSUS\b|\bFACING\b|\bFACE\s*(A|À)\b|\bCONTRE\b|\bDEF(ENSE|ENCE)?\b/);
+  if (/\bBB\b/.test(t) && (vs || /\bLIMP/.test(t))) {
+    type = 'bb';
+    const after = vs ? t.slice(vs.index) : t;
+    if (/LIMP\s*-?\s*(3\s*-?\s*BET|RE\s*-?\s*RAISE|RERAISE|RELANCE|RAISE)/.test(t)) seat = 'vsLimp3bet';
+    else if (/LIMP\s*-?\s*(SHOVE|JAM|TAPIS|ALL\s*-?\s*IN|PUSH)/.test(t)) seat = 'vsLimpShove';
+    else if (/\bLIMP/.test(t)) seat = 'vsLimp';
+    else seat = seatIn(after.replace(/\bBB\b/g, ' '));
+  } else {
+    seat = seatIn(t);
+    if (seat || /\b(OPEN|RFI|OUVERTURE|FIRST\s*IN)\b/.test(t)) type = 'open';
+  }
+  return { type, seat, stack };
+}
+
+// Best guess of the spot from a file name ("BB vs CO 25bb.png", "open_BTN_30bb.jpg",
+// "SB 19bb.png"): { type, seat, stack }, any part may be missing.
+export function guessSpot(name) {
+  const s = String(name).replace(/\.[a-z0-9]+$/i, '').replace(/[_.]+/g, ' ').trim();
+  const head = parseHeader(s);
+  if (head && validate({ ...head, grid: Array(13).fill('F'.repeat(13)) }).ok) return head;
+  const st = s.match(/(\d+(?:[.,]\d+)?)\s*bb\b/i) || s.match(/\b(\d{2,3})\b/);
+  const stack = st ? +st[1].replace(',', '.') : null;
+  const vs = s.match(/\bvs\.?\s*(.+)$/i);
+  if (vs || /\bbb\b(?!\s*$)/i.test(s.replace(/\d+\s*bb/i, ''))) {
+    const rest = (vs ? vs[1] : s.replace(/\d+(?:[.,]\d+)?\s*bb/i, '').replace(/\bbb\b/i, '')).replace(/\d+(?:[.,]\d+)?\s*bb/i, '').replace(/\s+/g, '');
+    const seat = seatOf(rest.replace(/^open/i, ''), 'bb');
+    return { type: 'bb', seat: BB_VS.includes(seat) ? seat : null, stack };
+  }
+  const tok = s.split(/[\s-]+/).map((t) => seatOf(t, 'open')).find((t) => OPEN_SEATS.includes(t));
+  return { type: 'open', seat: tok || null, stack };
+}
+
 function fromJson(raw) {
   if (!raw || typeof raw !== 'object') return { error: 'entrée vide' };
   const type = String(raw.type || '').toLowerCase() === 'bb' ? 'bb' : String(raw.type || '').toLowerCase() === 'open' ? 'open' : raw.type;
