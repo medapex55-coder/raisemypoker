@@ -16,5 +16,9 @@
   <div id="app"></div>
   <noscript>Cette application a besoin de JavaScript.</noscript>
   <script type="module" src="js/main.js"></script>
+  <script>
+    // sw.js: every file is checked with the server, so a publish is seen at the next load.
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  </script>
 </body>
 </html>
