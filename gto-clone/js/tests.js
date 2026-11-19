@@ -432,6 +432,44 @@ await test('U24-L', 'chart legend: each word takes the color of its swatch or of
   const boxes = colorBoxes(img, null);
   assert(boxes.length === 2 && boxes.every((b) => b.y0 >= 98), `two text boxes, not the square swatches: ${JSON.stringify(boxes)}`);
 });
+await test('U24-V', 'charts for other spots: a seat facing an open, an open shove or a 3bet, read from titles and played by the solver', () => {
+  const cases = {
+    'CO vs LJ open 25bb': 'vs CO LJ open 25', 'BTN vs CO 40bb': 'vs BTN CO open 40', 'BB vs BTN shove 15bb': 'vs BB BTN shove 15',
+    'SB vs CO open shove 12bb': 'vs SB CO shove 12', 'LJ vs 3bet BTN 40bb': 'vs LJ BTN 3bet 40', 'CO vs BTN 30bb': 'vs CO BTN 3bet 30',
+    'BTN vs LJ 3bet 25bb': 'vs BTN LJ open 25', 'BB vs CO 20bb': 'bb CO undefined undefined 20', 'LJ open shove 12bb': 'open LJ undefined undefined 12',
+  };
+  for (const [text, want] of Object.entries(cases)) {
+    const f = spotFromText(text);
+    assert(`${f.type} ${f.seat} ${f.vs} ${f.line} ${f.stack}` === want, `« ${text} » -> ${f.type} ${f.seat} ${f.vs} ${f.line} ${f.stack}, attendu ${want}`);
+  }
+  const g = guessSpot('CO vs LJ 25bb.png');
+  assert(g.type === 'vs' && g.seat === 'CO' && g.vs === 'LJ' && g.line === 'open', `file name: ${JSON.stringify(g)}`);
+  const saved = getUserCharts();
+  try {
+    const t = parseChartText('CO vs open LJ 30bb\nraise: AA, KK\ncall: QQ-99, AKs\n\nBB vs shove BTN 15bb\ncall: 22+, A2s+, KTs+\n\nLJ vs 3bet BTN 30bb\nraise: AA\ncall: KK-TT, AKs\n\nLJ vs open BTN 30bb\nraise: AA', 't');
+    assert(t.charts.length === 3 && t.errors.length === 1, `3 charts, 1 error (LJ can't face the BTN's open): ${t.charts.length} / ${t.errors.join(' ; ')}`);
+    clearUserCharts();
+    addUserCharts(t.charts);
+    const freq = (n, name, type) => comboFreqs(n, CLASS_BY_NAME[name].combos[0])[n.actions.findIndex((a) => a.type === type)];
+    // CO facing the LJ's 30bb open.
+    const lj = act(initialState({ stack: 30, open: '2.5' }), 'raise');
+    const co = act(lj, 'fold');
+    assert(co.toAct === 2 && /importé/.test(bbChart(co)?.title || ''), `CO vs LJ uses the imported chart: ${bbChart(co)?.title}`);
+    const nc = analyze(co);
+    assert(freq(nc, 'KK', 'raise') > 0.99 && freq(nc, 'JJ', 'call') === 1 && freq(nc, 'AQs', 'fold') === 1, 'CO plays the imported chart');
+    // BB facing the BTN's 15bb shove: the chart, not the push/fold equilibrium.
+    let s = foldTo(initialState({ stack: 15, open: '2' }), 3);
+    s = act(s, 'allin'); s = act(s, 'fold');
+    assert(s.toAct === 5 && !pushFoldSpot(s) && /importé/.test(bbChart(s)?.title || ''), 'BB vs BTN shove uses the imported chart');
+    const ns = analyze(s);
+    assert(freq(ns, '22', 'call') === 1 && freq(ns, 'K9s', 'fold') === 1, 'BB calls the chart\'s range');
+    // The LJ facing the BTN's 3bet.
+    const b = act(foldTo(lj, 3), 'raise'); // the 3bet makes the pot heads-up: back to the LJ
+    assert(b.toAct === 0 && b.raiseLevel === 2 && /importé/.test(bbChart(b)?.title || ''), `LJ vs 3bet BTN uses the imported chart: ${bbChart(b)?.title} (${b.toAct})`);
+    const nb = analyze(b);
+    assert(freq(nb, 'QQ', 'call') === 1 && freq(nb, 'AQs', 'fold') === 1, 'LJ plays the imported chart vs the 3bet');
+  } finally { clearUserCharts(); addUserCharts(saved); }
+});
 
 await test('D01', 'PokerStars summary: buy-in, players, prize pool, place, prize, re-entry', () => {
   const s = parseFile(PS_SUMMARY).summary;

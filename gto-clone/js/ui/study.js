@@ -656,7 +656,7 @@ function bbChartPanel(node) {
     [vsLimp ? 'Check' : 'Call', s.call, 'var(--act-call)'], ['Fold', s.fold, 'var(--act-fold)'],
   ];
   const stack = node.st.cfg.stack, depth = ch.parts[0].depth;
-  return h('section.panel.chart-panel', { 'aria-label': 'Ton chart BB' },
+  return h('section.panel.chart-panel', { 'aria-label': 'Ton chart' },
     h('div.panel-title', ch.blend ? `Tes charts ${ch.blend.lo}bb ↔ ${ch.blend.hi}bb · ${ch.title}` : `Ton chart ${depth}bb · ${ch.title}`),
     ch.blend ? blendNote(ch.blend, stack) : stack !== depth ? h('p.small.muted', `Pas de chart à ${stack}bb : c'est ton chart ${depth}bb qui s'applique tel quel.`) : null,
     h('ul.chart-rows', rows.filter(([, v]) => v > 0.0005 * tot).map(([label, v, color]) => h('li',

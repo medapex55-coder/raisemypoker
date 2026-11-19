@@ -135,7 +135,7 @@ const ACTION_WORDS = [
   // Common OCR slips are accepted: l / I / 1 and O / 0 swapped.
   ['light', /^([L1I]IGHT|L[1I]GHT|BLUFFS?)$/],
   ['allin', /^(ALL-?[I1L]N|SHOVES?|JAM|PUSH|TAPIS|AI)$/],
-  ['raise', /^(RA[I1L]SES?|RELANCER?|3-?BETS?|[I1]SO|[I1]SOLATE|[I1]SOLAT[I1]ON|BET)$/],
+  ['raise', /^(RA[I1L]SES?|RELANCER?|[34]-?BETS?|[I1]SO|[I1]SOLATE|[I1]SOLAT[I1]ON|BET)$/],
   ['call', /^(CA[L1I]{1,2}S?|SU[I1]VRE|SU[I1]T|PAYER?|COLD-?CALL|FLAT)$/],
   ['check', /^(CHECKS?)$/],
   ['limp', /^([L1I][I1L]MPS?|COMPL[EÈ]TER?)$/],

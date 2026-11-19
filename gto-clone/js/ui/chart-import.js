@@ -12,6 +12,7 @@ import { h, mount, modal, toast } from './dom.js';
 import { CLASSES } from '../engine/cards.js';
 import {
   parseChartText, addUserCharts, getUserCharts, removeUserChart, clearUserCharts, chartLabel, TEMPLATE, exportJson, OPEN_SEATS, BB_VS, guessSpot, spotFromText, validate, onUserCharts,
+  ALL_SEATS, vsSeats, lineVillains, spotOf, codeFamily, spotReady, spotTitle, slotKey, shoveRow,
 } from '../data/user-charts.js';
 import {
   detectGrid, sampleCells, clusterColors, guessCode, gridFrom, imageDataOf, OPEN_ACTIONS, BB_ACTIONS, CELL_CODES, legendEntries, legendType, legendCodes,
@@ -30,8 +31,8 @@ const HALF = {
 
 // A cell's color for a code (a mixed code is half one color, half the other).
 function cellBg(type, code) {
-  const colors = type === 'open' ? OPEN_COLORS : BB_COLORS;
-  const half = HALF[type][code];
+  const fam = codeFamily(type), colors = fam === 'open' ? OPEN_COLORS : BB_COLORS;
+  const half = HALF[fam][code];
   return half ? `linear-gradient(90deg, ${colors[half[0]]} 50%, ${colors[half[1]]} 50%)` : colors[code];
 }
 // Every code a cell can take, with its name: the brush's palette.
@@ -49,7 +50,7 @@ function MiniChart(c, brush, cls = '') {
     return h('div.mini-chart' + cls, { role: 'img', 'aria-label': c.seat && c.stack ? chartLabel(c) : 'Aperçu' },
       CLASSES.map((k) => h('span', { style: { background: cellBg(c.type, c.grid[k.row][k.col]) } })));
   }
-  const label = (k, code) => `${k.name} : ${CODE_NAMES[c.type][code] || code}`;
+  const label = (k, code) => `${k.name} : ${CODE_NAMES[codeFamily(c.type)][code] || code}`;
   const grid = h('div.mini-chart.edit' + cls, { role: 'group', 'aria-label': 'Charte à corriger : choisis une action, puis clique ou glisse sur les cases' },
     CLASSES.map((k) => {
       const code = c.grid[k.row][k.col];
@@ -107,12 +108,9 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const SPOT_NAMES = {
-  open: { LJ: 'Open LJ', HJ: 'Open HJ', CO: 'Open CO', BTN: 'Open BTN', SB: 'Open SB' },
-  bb: { LJ: 'BB vs open LJ', HJ: 'BB vs open HJ', CO: 'BB vs open CO', BTN: 'BB vs open BTN', SB: 'BB vs open SB', vsLimp: 'BB vs limp SB', vsLimp3bet: 'BB vs limp-relance SB', vsLimpShove: 'BB vs limp-tapis SB' },
-};
-const spotName = (c) => (c.seat ? SPOT_NAMES[c.type][c.seat] : c.type === 'bb' ? 'BB · position ?' : 'Open · position ?') + ' · ' + (c.stack ? c.stack + 'bb' : 'stack ?');
-const slot = (c) => `${c.type}|${c.seat}|${c.stack}`;
+// The spot's name in the list: 'Open CO · 20bb', 'CO vs open LJ · stack ?'.
+const spotName = (c) => spotTitle(c) + ' · ' + (c.stack ? c.stack + 'bb' : 'stack ?');
+const slot = slotKey;
 
 // ---------- the 6-max spots by stack ----------
 // Grey: no chart at all. Green: a chart you added to the solver.
@@ -123,16 +121,17 @@ function spotsByStack() {
   // The usual stacks, plus any stack you added a chart at (30bb, 40bb…).
   const stacks = [...new Set([...COVER_STACKS, ...getUserCharts().map((c) => c.stack)])].sort((a, b) => b - a);
   const rows = stacks.map((stack) => {
-    const spots = [...OPEN_SEATS.map((s) => ['open', s]), ...BB_VS.map((s) => ['bb', s])];
-    const added = spots.filter(([t, s]) => mine.has(`${t}|${s}|${stack}`));
-    const miss = spots.filter(([t, s]) => !hasChart(t, s, stack));
+    const spots = [...OPEN_SEATS.map((seat) => ({ type: 'open', seat, stack })), ...BB_VS.map((seat) => ({ type: 'bb', seat, stack }))];
+    // Every chart you added at this stack (the 'vs' spots too), then the usual spots without one.
+    const added = getUserCharts().filter((c) => c.stack === stack).sort((a, b) => spotTitle(a).localeCompare(spotTitle(b)));
+    const miss = spots.filter((c) => !hasChart(c.type, c.seat, stack));
     missing += miss.length;
     return h('li.miss-row',
       h('strong.mono', stack + 'bb'),
       added.length || miss.length
         ? h('span.miss-spots',
-          added.map(([t, s]) => h('span.miss-tag.added', { title: 'Charte ajoutée dans le solver' }, '✓ ', SPOT_NAMES[t][s])),
-          miss.map(([t, s]) => h('span.miss-tag' + (t === 'bb' ? '.bb' : ''), { title: 'Pas de charte' }, SPOT_NAMES[t][s])))
+          added.map((c) => h('span.miss-tag.added', { title: 'Charte ajoutée dans le solver' }, '✓ ', spotTitle(c))),
+          miss.map((c) => h('span.miss-tag' + (c.type === 'bb' ? '.bb' : ''), { title: 'Pas de charte' }, spotTitle(c))))
         : h('span.small.muted', 'toutes les chartes d\'origine sont là'));
   });
   return h('section.import-missing',
@@ -154,10 +153,10 @@ const loadImage = (file) => new Promise((ok, ko) => {
 // Each color's action: from the chart's legend when it was read, else a
 // guess from the hue (only the SB limps first in: elsewhere green is Loosifie).
 function guess(st) {
-  st.fromLegend = st.legend ? legendCodes(st.legend, st.read.clusters, st.type) : [];
+  st.fromLegend = st.legend ? legendCodes(st.legend, st.read.clusters, codeFamily(st.type)) : [];
   st.codes = st.read.clusters.map((c, i) => {
     if (st.fromLegend[i]) return st.fromLegend[i].code;
-    const k = guessCode(c.rgb, st.type);
+    const k = guessCode(c.rgb, codeFamily(st.type));
     return k === 'M' && st.seat && st.seat !== 'SB' ? 'L' : k;
   });
 }
@@ -172,8 +171,9 @@ function applyText(st, data, text, words) {
   const lines = text.split('\n').map((l) => l.trim()).filter((l) => /[a-z0-9]{2}/i.test(l));
   const line = lines.find((l) => spotFromText(l).seat && spotFromText(l).stack) || lines.find((l) => spotFromText(l).seat) || lines.find((l) => /\d\s*bb|open|rfi|vs/i.test(l)) || lines[0] || '';
   st.ocr = { status: found.seat || found.stack ? 'done' : 'none', line: line.slice(0, 60), found };
-  if (found.type && found.type !== st.type) { st.type = found.type; st.seat = null; }
-  if (found.seat && (st.type === 'open' ? OPEN_SEATS : BB_VS).includes(found.seat)) st.seat = found.seat;
+  if (found.type && (found.type !== st.type || found.line !== st.line)) Object.assign(st, { type: found.type, seat: null, vs: null, line: found.line || null });
+  if (st.type === 'vs') { if (found.seat) st.seat = found.seat; if (found.vs) st.vs = found.vs; }
+  else if (found.seat && (st.type === 'open' ? OPEN_SEATS : BB_VS).includes(found.seat)) st.seat = found.seat;
   if (found.stack) st.stack = found.near || found.stack;
 }
 
@@ -184,7 +184,7 @@ async function autoRead(file) {
   const spot = guessSpot(file.name);
   const rect = detectGrid(data);
   const st = {
-    type: spot.type || 'open', seat: spot.seat, stack: STACKS.includes(spot.stack) ? spot.stack : null,
+    type: spot.type || 'open', seat: spot.seat, vs: spot.vs || null, line: spot.line || null, stack: STACKS.includes(spot.stack) ? spot.stack : null,
     rect, read: clusterColors(sampleCells(data, rect)), legend: null, ocr: null, fixes: new Map(), touched: false,
   };
   try { const { text, words } = await readText(data, rect); applyText(st, data, text, words); }
@@ -194,7 +194,42 @@ async function autoRead(file) {
   return st;
 }
 
-const chartOf = (st) => ({ type: st.type, seat: st.seat, stack: st.stack, grid: gridFrom(st.type, st.read.of, st.codes, st.fixes) });
+function chartOf(st) {
+  let grid = gridFrom(codeFamily(st.type), st.read.of, st.codes, st.fixes);
+  if (st.type !== 'vs') return { type: st.type, seat: st.seat, stack: st.stack, grid };
+  if (st.line === 'shove') grid = grid.map(shoveRow); // facing an all-in: call or fold
+  return { type: 'vs', seat: st.seat, vs: st.vs, line: st.line, stack: st.stack, grid };
+}
+// The codes a cell can take in this spot (the brush's palette).
+const cellCodes = (st) => (st.type === 'vs' && st.line === 'shove' ? 'CcF' : CELL_CODES[codeFamily(st.type)]);
+
+// ---------- the spot of a chart, in the editor ----------
+// Situation: first in, facing an open, an open shove, a 3bet, or the SB's limp.
+const KINDS = [['first', 'Open / open shove (first in)'], ['open', 'Face à un open'], ['shove', 'Face à un tapis'], ['3bet', 'Face à un 3bet'], ['limp', 'BB vs limp SB']];
+function kindOf(st) {
+  if (st.type === 'open') return 'first';
+  if (st.type === 'vs') return st.line;
+  return String(st.seat || '').startsWith('vsLimp') ? 'limp' : 'open';
+}
+const heroOf = (st) => (st.type === 'bb' ? (kindOf(st) === 'limp' ? st.seat : 'BB') : st.seat);
+const villainOf = (st) => (st.type === 'vs' ? st.vs : st.type === 'bb' && kindOf(st) === 'open' ? st.seat : null);
+// Position (the player deciding) choices, and the opponent's, for a situation.
+function heroChoices(kind) {
+  if (kind === 'first') return OPEN_SEATS.map((s) => [s, s]);
+  if (kind === 'limp') return BB_VS.filter((s) => s.startsWith('vsLimp')).map((s) => [s, spotTitle({ type: 'bb', seat: s })]);
+  return (kind === '3bet' ? ALL_SEATS.slice(0, 5) : ALL_SEATS.slice(1)).map((s) => [s, s]);
+}
+const villainChoices = (kind, hero) => lineVillains(kind).filter((v) => !hero || vsSeats(kind, v).includes(hero)).map((s) => [s, s]);
+// Sets the spot from the editor's choices (a choice that no longer fits is cleared).
+function setSpot(st, kind, hero, villain) {
+  if (hero && !heroChoices(kind).some(([s]) => s === hero)) hero = null;
+  if (kind === 'first') Object.assign(st, { type: 'open', seat: hero, vs: null, line: null });
+  else if (kind === 'limp') Object.assign(st, { type: 'bb', seat: hero, vs: null, line: null });
+  else {
+    if (villain && !villainChoices(kind, hero).some(([s]) => s === villain)) villain = null;
+    Object.assign(st, { vs: null, line: null }, spotOf(kind, hero, villain));
+  }
+}
 
 // What is left to check on an automatic reading (empty: ready).
 function problemsOf(st, checked) {
@@ -202,6 +237,9 @@ function problemsOf(st, checked) {
   const p = [];
   if (st.ocr?.status === 'error') p.push('texte illisible');
   if (!st.seat) p.push('position non lue');
+  if (st.type === 'vs' && !st.vs) p.push('adversaire non lu');
+  const v = spotReady(st) && validate(chartOf(st));
+  if (v && !v.ok) p.push(v.error);
   if (!st.stack) p.push('stack non lu');
   const guessed = st.touched ? 0 : st.codes.filter((c, i) => !st.fromLegend[i]).length;
   if (guessed) p.push(`${guessed} couleur${guessed > 1 ? 's' : ''} devinée${guessed > 1 ? 's' : ''}`);
@@ -283,7 +321,7 @@ function ImageEditor(it, { onDone, onClose }) {
   loadImage(it.file).then((img) => build(imageDataOf(img)), () => mount(el, h('p.warn', 'Image illisible.')));
   function build(data) {
     const st = { ...it.st, codes: it.st.codes.slice(), fixes: new Map(it.st.fixes), fromLegend: it.st.fromLegend.slice() };
-    if (!CELL_CODES[st.type].includes(st.brush)) st.brush = 'R';
+    if (!cellCodes(st).includes(st.brush)) st.brush = cellCodes(st)[0];
     // The brush: a stroke (press, drag, release) is one step for "Annuler".
     const history = [];
     let before = null;
@@ -336,10 +374,17 @@ function ImageEditor(it, { onDone, onClose }) {
     });
     function draw() {
       paint();
-      const seats = st.type === 'open' ? OPEN_SEATS : BB_VS;
       const actions = st.type === 'open' ? OPEN_ACTIONS : BB_ACTIONS;
       const chart = chartOf(st);
-      const ready = st.seat && st.stack;
+      const kind = kindOf(st), hero = heroOf(st), villain = villainOf(st);
+      const ready = spotReady(chart) && validate(chart).ok;
+      // A new situation: the colors are read again when the codes change family (open / others).
+      const pickKind = (k) => {
+        const fam = codeFamily(st.type);
+        setSpot(st, k, hero, villain);
+        if (codeFamily(st.type) !== fam) { st.touched = false; guess(st); st.fixes = new Map(); history.length = 0; }
+        if (!cellCodes(st).includes(st.brush)) st.brush = cellCodes(st)[0];
+      };
       const sel = (label, value, opts, set) => h('label.pick-field', label, h('select', { 'aria-label': label, on: { change: (e) => { set(e.target.value); draw(); } } },
         value == null ? h('option', { value: '', selected: true }, 'à choisir') : null,
         opts.map(([v, l]) => h('option', { value: String(v), selected: String(v) === String(value) }, l))));
@@ -348,8 +393,10 @@ function ImageEditor(it, { onDone, onClose }) {
         h('div.img-wrap', canvas),
         h('p.small.muted', 'Le cadre jaune doit entourer exactement les 13 × 13 cases (de AA à 22). Sinon, clique-glisse sur l\'image pour le redessiner.'),
         h('div.row.gap.wrap',
-          sel('Chart', st.type, [['open', 'Open (first in)'], ['bb', 'BB']], (v) => { st.type = v; st.seat = null; st.touched = false; guess(st); st.fixes = new Map(); history.length = 0; if (!CELL_CODES[v].includes(st.brush)) st.brush = 'R'; }),
-          sel('Position', st.seat, seats.map((s) => [s, SPOT_NAMES[st.type][s]]), (v) => { st.seat = v || null; if (!st.touched) guess(st); }),
+          sel('Situation', kind, KINDS, pickKind),
+          sel(kind === 'limp' ? 'Spot' : 'Position', hero, heroChoices(kind), (v) => { setSpot(st, kind, v || null, villain); if (!st.touched) guess(st); }),
+          ['first', 'limp'].includes(kind) ? null
+            : sel(kind === '3bet' ? '3bet par' : kind === 'shove' ? 'Tapis de' : 'Open de', villain, villainChoices(kind, hero), (v) => { setSpot(st, kind, hero, v || null); }),
           sel('Stack', st.stack, STACKS.slice().sort((a, b) => b - a).map((s) => [s, s + 'bb']), (v) => { st.stack = v ? +v : null; })),
         ocrNote(st.ocr),
         h('div.panel-title', 'Couleurs trouvées'),
@@ -364,10 +411,10 @@ function ImageEditor(it, { onDone, onClose }) {
           h('div.brush-panel',
             h('div.panel-title', 'Pinceau'),
             h('p.small.muted', 'Choisis une action, puis clique ou glisse sur les cases de la charte : chaque case touchée la prend.'),
-            h('div.brush-bar', { role: 'radiogroup', 'aria-label': 'Action du pinceau' }, CELL_CODES[st.type].split('').map((code) => h('button.brush-btn' + (code === st.brush ? '.on' : ''), {
+            h('div.brush-bar', { role: 'radiogroup', 'aria-label': 'Action du pinceau' }, cellCodes(st).split('').map((code) => h('button.brush-btn' + (code === st.brush ? '.on' : ''), {
               type: 'button', role: 'radio', 'aria-checked': code === st.brush ? 'true' : 'false',
               on: { click: () => { st.brush = code; draw(); } },
-            }, h('span.brush-swatch', { style: { background: cellBg(st.type, code) } }), CODE_NAMES[st.type][code]))),
+            }, h('span.brush-swatch', { style: { background: cellBg(st.type, code) } }), CODE_NAMES[codeFamily(st.type)][code]))),
             h('div.row.gap.wrap',
               h('button.btn.ghost.sm', { type: 'button', disabled: !history.length, on: { click: () => { st.fixes = history.pop(); draw(); } } }, '↶ Annuler le dernier coup'),
               h('button.btn.ghost.sm', { type: 'button', disabled: !st.fixes.size, on: { click: () => { history.push(new Map(st.fixes)); st.fixes = new Map(); draw(); } } }, 'Effacer mes corrections')),
@@ -375,9 +422,9 @@ function ImageEditor(it, { onDone, onClose }) {
         h('div.row.end.gap',
           h('button.btn.ghost', { type: 'button', on: { click: onClose } }, 'Annuler'),
           h('button.btn.primary', {
-            type: 'button', disabled: !ready, title: ready ? null : 'Choisis la position et le stack',
+            type: 'button', disabled: !ready, title: ready ? null : 'Choisis le spot (positions) et le stack',
             on: { click: () => { st.touched = true; onDone(st, chart); } },
-          }, ready ? `Valider ${chartLabel(chart)}` : 'Choisis la position et le stack')));
+          }, ready ? `Valider ${chartLabel(chart)}` : 'Choisis le spot (positions) et le stack')));
     }
     draw();
   }
@@ -391,7 +438,7 @@ function ocrNote(o) {
   const legend = o.legend ? ` · légende : ${o.legend} couleur${o.legend > 1 ? 's' : ''} reconnue${o.legend > 1 ? 's' : ''}` : ' · pas de légende lisible : actions devinées d\'après les couleurs';
   if (o.status === 'none') return h('p.small.muted.ocr-note', 'Aucun spot ni stack lisible sur l\'image', o.line ? ` (lu : « ${o.line} »)` : '', ' : choisis-les', legend + '.');
   const f = o.found;
-  const parts = [f.seat ? SPOT_NAMES[f.type || 'open']?.[f.seat] || f.seat : f.type === 'bb' ? 'BB' : f.type === 'open' ? 'Open' : null, f.stack && (f.near || f.stack) + 'bb'].filter(Boolean);
+  const parts = [f.seat || f.vs ? spotTitle(f) : f.type === 'bb' ? 'BB' : f.type === 'open' ? 'Open' : null, f.stack && (f.near || f.stack) + 'bb'].filter(Boolean);
   return h('p.small.ocr-note', '✓ Lu sur l\'image : ', h('strong', `« ${o.line} »`), ` → ${parts.join(' · ')}`,
     f.near ? h('span.muted', ` (${f.stack}bb n'existe pas dans l'appli : ${f.near}bb, le plus proche)`) : null, legend);
 }
@@ -456,7 +503,7 @@ export function openChartImport(onChange) {
     const imgDone = images.filter((r) => !['waiting', 'reading'].includes(r.status)).length;
     const ready = list.filter((r) => r.status === 'ready');
     const count = {};
-    for (const r of list) if (r.chart?.seat && r.chart?.stack && r.status !== 'added') count[slot(r.chart)] = (count[slot(r.chart)] || 0) + 1;
+    for (const r of list) if (spotReady(r.chart) && r.status !== 'added') count[slot(r.chart)] = (count[slot(r.chart)] || 0) + 1;
     mount(listEl,
       h('div.import-head',
         h('div.panel-title', `Liste d'import · ${list.length} fichier${list.length > 1 ? 's' : ''}`),
@@ -470,8 +517,8 @@ export function openChartImport(onChange) {
           h('span.small.muted', 'Vider la liste ne retire rien du solver.'))),
       h('ul.import-rows', list.map((it) => {
         const [label, tone] = STATUS[it.status];
-        const dup = it.chart?.seat && count[slot(it.chart)] > 1;
-        const canAdd = it.chart && it.chart.seat && it.chart.stack && it.status !== 'added';
+        const dup = spotReady(it.chart) && count[slot(it.chart)] > 1;
+        const canAdd = spotReady(it.chart) && it.status !== 'added';
         return h('li.import-row' + (editing === it ? '.editing' : '') + (it.status === 'added' ? '.added' : ''),
           it.chart ? MiniChart(it.chart, null, '.thumb') : h('div.thumb-empty', it.status === 'reading' ? h('span.spinner.sm') : '·'),
           h('div.import-info',
@@ -498,7 +545,7 @@ export function openChartImport(onChange) {
             h('button.btn.ghost.sm', { type: 'button', on: { click: () => download('mes-chartes-raisemypoker.json', exportJson(), 'application/json') } }, 'Exporter'),
             h('button.btn.ghost.sm', { type: 'button', on: { click: () => { if (confirm(`Retirer du solver tes ${mine.length} chartes ? Le solver reviendra aux chartes d'origine.`)) { clearUserCharts(); onChange?.(); } } } }, 'Tout retirer du solver')) : null),
         mine.length
-          ? h('ul.mine-list', mine.slice().sort((a, b) => a.type.localeCompare(b.type) || b.stack - a.stack || a.seat.localeCompare(b.seat)).map((c) => h('li.row.between',
+          ? h('ul.mine-list', mine.slice().sort((a, b) => a.type.localeCompare(b.type) || b.stack - a.stack || spotTitle(a).localeCompare(spotTitle(b))).map((c) => h('li.row.between',
             h('span', h('span.pos', '✓ '), chartLabel(c)),
             h('button.btn.ghost.sm', { type: 'button', 'aria-label': `Retirer ${chartLabel(c)} du solver`, on: { click: () => { if (confirm(`Retirer ${chartLabel(c)} du solver ?`)) { removeUserChart(c); onChange?.(); } } } }, 'Retirer du solver'))))
           : h('p.small.muted', 'Aucune pour l\'instant. Tes chartes ajoutées restent dans le solver, même après avoir vidé la liste d\'import ou fermé l\'appli.')));

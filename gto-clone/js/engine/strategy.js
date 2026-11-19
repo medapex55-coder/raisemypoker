@@ -11,7 +11,7 @@ import { OPEN_CHARTS } from '../data/open-charts.js';
 import { OPEN_CHARTS_50, BB_CHARTS_50, BB_CODES } from '../data/charts-50.js';
 import { OPEN_CHARTS_25, OPEN_CHARTS_20, BB_CHARTS_25, BB_CHARTS_20 } from '../data/charts-short.js';
 import { OPEN_CHARTS_EXACT } from '../data/charts-exact.js';
-import { userOpenChart, userBbCharts, onUserCharts } from '../data/user-charts.js';
+import { userOpenChart, userBbCharts, userVsChart, onUserCharts } from '../data/user-charts.js';
 import { VS_OPEN_100 } from '../data/charts-100.js';
 import { stageBubbleFactor } from './icm.js';
 import { solutionAt, onSolution } from './solutions.js';
@@ -168,8 +168,11 @@ function bbChartAt(st, depth) {
 // everyone between folded (100bb: BTN vs LJ, HJ).
 export function bbChart(st) {
   const { cfg } = st;
-  if (st.street !== 0 || st.toAct < 0 || isHU(st) || !chartOpen(cfg.open)) return null;
+  if (st.street !== 0 || st.toAct < 0 || isHU(st)) return null;
   if (Math.abs(rangeScale(cfg) - 1) > 0.005) return null;
+  const u = userSpotChart(st); // imported for this exact spot: wins
+  if (u) return u;
+  if (!chartOpen(cfg.open)) return null;
   if (st.toAct !== 5) return defChart(st);
   // A BB chart imported for this exact stack plays as is.
   if (userBbCharts(cfg.stack)) {
@@ -188,6 +191,21 @@ export function bbChart(st) {
   const ch = bbChartAt(st, depth);
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] } : null;
 }
+// A 'vs' chart imported in Study for this exact spot and stack: a seat facing
+// a single open or open shove (everyone in between folded), or the opener
+// facing a 3bet. Same shape as bbChart's.
+function userSpotChart(st) {
+  const p = st.toAct, o = st.lastAggr, stack = st.cfg.stack;
+  if (o < 0 || p < 0 || st.limpers.length) return null;
+  let ch = null;
+  if (st.raiseLevel === 1 && alive(st).every((i) => i === o || i >= p)) {
+    if (remaining(st, o) <= 0) ch = userVsChart(POS[p], POS[o], 'shove', stack);
+    else if (p !== 5) ch = userVsChart(POS[p], POS[o], 'open', stack);
+  } else if (st.raiseLevel === 2 && p < o && alive(st).every((i) => i === p || i === o)) { // heads-up after the 3bet: p is the opener
+    ch = userVsChart(POS[p], POS[o], '3bet', stack);
+  }
+  return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth: stack, w: 1 }] } : null;
+}
 function defChart(st) {
   const p = st.toAct, o = st.lastAggr, depth = chartDepth(st.cfg.stack);
   const set = DEF_BY_DEPTH[depth]?.[POS[p]];
@@ -204,7 +222,10 @@ export function pushFoldSpot(st) {
   if (Math.abs(rangeScale(cfg) - 1) > 0.005) return null;
   const p = st.toAct;
   if (st.raiseLevel === 0 && p <= 4) return exactChart(p, cfg.stack) ? null : { kind: 'push', i: p, nash: pushFoldNash(cfg.stack) }; // the user's chart wins
-  if (st.raiseLevel === 1 && remaining(st, st.lastAggr) <= 0 && p > st.lastAggr) return { kind: 'call', i: st.lastAggr, j: p, nash: pushFoldNash(cfg.stack) };
+  if (st.raiseLevel === 1 && remaining(st, st.lastAggr) <= 0 && p > st.lastAggr) {
+    if (userSpotChart(st)) return null; // the user's chart facing this shove wins
+    return { kind: 'call', i: st.lastAggr, j: p, nash: pushFoldNash(cfg.stack) };
+  }
   return null;
 }
 

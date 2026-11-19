@@ -15,6 +15,29 @@ export const OPEN_CODES = 'RFLTXMHAam';
 export const BB_CODES_OK = 'FCRBKcrAajqn';
 const BB_TITLES = { vsLimp: 'BB vs limp SB', vsLimp3bet: 'BB vs limp-relance SB', vsLimpShove: 'BB vs limp-tapis SB' };
 const BB_RAISE = { vsLimp: 'Raise', vsLimp3bet: 'Tapis', vsLimpShove: 'Tapis' };
+// 'vs' charts: { type: 'vs', seat: the player deciding, vs: the other player, line, stack, grid }.
+//   open: seat faces vs's open (the BB's is a 'bb' chart); shove: vs opened
+//   all-in; 3bet: seat opened and vs 3bet. Same codes as the BB's charts.
+export const ALL_SEATS = ['LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
+export const VS_LINES = ['open', 'shove', '3bet'];
+const LINE_WORD = { open: 'open', shove: 'tapis', '3bet': '3bet' };
+const LINE_RAISE = { open: '3bet', shove: 'Tapis', '3bet': '4bet' };
+// Seats that can face this line from vs (open, shove: after vs; 3bet: the opener, before vs).
+export function vsSeats(line, vs) {
+  const i = ALL_SEATS.indexOf(vs);
+  return i < 0 ? [] : ALL_SEATS.filter((s, j) => (line === '3bet' ? j < i && j < 5 : j > i));
+}
+// Seats that can make this line (open, shove: LJ..SB; 3bet: HJ..BB).
+export const lineVillains = (line) => (line === '3bet' ? ALL_SEATS.slice(1) : ALL_SEATS.slice(0, 5));
+// The chart's slot for a decision: the BB facing an open is a 'bb' chart.
+export function spotOf(line, seat, vs) {
+  if (line === 'open' && seat === 'BB') return { type: 'bb', seat: vs || null };
+  return { type: 'vs', seat: seat || null, vs: vs || null, line };
+}
+// Which codes a chart's cells use: open charts', or the BB's set (every other chart).
+export const codeFamily = (type) => (type === 'open' ? 'open' : 'bb');
+// Is the spot fully named (seat, opponent when needed, stack)?
+export const spotReady = (c) => !!(c && c.seat && c.stack && (c.type !== 'vs' || (c.vs && c.line)));
 
 // Saved twice: in localStorage (read at once when the page opens) and in
 // IndexedDB (room to spare: localStorage can be full of hand histories, and
@@ -62,8 +85,15 @@ function save() {
 
 export const onUserCharts = (f) => { listeners.add(f); return () => listeners.delete(f); };
 export const getUserCharts = () => charts.slice();
-export const chartLabel = (c) => (c.type === 'open' ? `Open ${c.seat}` : BB_TITLES[c.seat] || `BB vs open ${c.seat}`) + ` · ${c.stack}bb`;
-const sameSlot = (a, b) => a.type === b.type && a.seat === b.seat && a.stack === b.stack;
+// The spot's name: 'Open CO', 'BB vs open BTN', 'CO vs open LJ', 'BB vs tapis SB', 'LJ vs 3bet BTN'.
+export function spotTitle(c) {
+  if (c.type === 'open') return `Open ${c.seat || '?'}`;
+  if (c.type === 'vs') return `${c.seat || '?'} vs ${LINE_WORD[c.line] || '?'} ${c.vs || '?'}`;
+  return BB_TITLES[c.seat] || `BB vs open ${c.seat || '?'}`;
+}
+export const chartLabel = (c) => `${spotTitle(c)} · ${c.stack}bb`;
+export const slotKey = (c) => [c.type, c.seat, c.vs || '', c.line || '', c.stack].join('|');
+const sameSlot = (a, b) => slotKey(a) === slotKey(b);
 
 // Adds charts; one that has the same type, seat and stack replaces the old one.
 export function addUserCharts(list) {
@@ -87,12 +117,28 @@ export function userBbCharts(stack) {
   return Object.keys(out).length ? out : null;
 }
 export const isUserOpen = (seat, stack) => !!userOpenChart(seat, stack);
+// A 'vs' chart in the BB charts' shape, or null.
+export function userVsChart(seat, vs, line, stack) {
+  const c = charts.find((o) => o.type === 'vs' && o.seat === seat && o.vs === vs && o.line === line && o.stack === stack);
+  if (!c) return null;
+  const grid = line === 'shove' ? c.grid.map(shoveRow) : c.grid;
+  return { title: spotTitle(c) + ' (importé)', raiseLabel: LINE_RAISE[line], grid, user: true };
+}
+// Facing an all-in there is only call or fold: any aggressive code is a call.
+export const shoveRow = (row) => row.replace(/[RABjraq]/g, 'C').replace(/[Kn]/g, 'F');
 
 // ---------- validation ----------
 export function validate(c) {
-  if (!c || (c.type !== 'open' && c.type !== 'bb')) return { ok: false, error: 'type inconnu (open ou bb)' };
-  const seats = c.type === 'open' ? OPEN_SEATS : BB_VS;
-  if (!seats.includes(c.seat)) return { ok: false, error: `position « ${c.seat ?? '?'} » inconnue (${seats.join(', ')})` };
+  if (!c || !['open', 'bb', 'vs'].includes(c.type)) return { ok: false, error: 'type inconnu (open, bb ou vs)' };
+  if (c.type === 'vs') {
+    if (!VS_LINES.includes(c.line)) return { ok: false, error: `situation « ${c.line ?? '?'} » inconnue (${VS_LINES.join(', ')})` };
+    if (!lineVillains(c.line).includes(c.vs)) return { ok: false, error: `adversaire « ${c.vs ?? '?'} » impossible ici (${lineVillains(c.line).join(', ')})` };
+    const ok = vsSeats(c.line, c.vs).filter((s) => !(c.line === 'open' && s === 'BB'));
+    if (!ok.includes(c.seat)) return { ok: false, error: `${c.seat ?? '?'} ne peut pas jouer ce spot face à ${c.vs} (${ok.join(', ') || 'aucune position'})` };
+  } else {
+    const seats = c.type === 'open' ? OPEN_SEATS : BB_VS;
+    if (!seats.includes(c.seat)) return { ok: false, error: `position « ${c.seat ?? '?'} » inconnue (${seats.join(', ')})` };
+  }
   if (!STACKS.includes(c.stack)) return { ok: false, error: `stack ${c.stack ?? '?'}bb non disponible (${STACKS.slice().sort((a, b) => a - b).join(', ')})` };
   const codes = c.type === 'open' ? OPEN_CODES : BB_CODES_OK;
   if (!Array.isArray(c.grid) || c.grid.length !== 13 || c.grid.some((r) => typeof r !== 'string' || r.length !== 13)) return { ok: false, error: 'la grille doit faire 13 lignes de 13 cases' };
@@ -163,7 +209,12 @@ function parseHeader(line) {
   if (!stack) return null;
   const s = +stack[1].replace(',', '.');
   const rest = l.replace(stack[0], ' ').trim();
-  const bb = rest.match(/^bb\s+(?:vs\.?\s*)?(?:open\s+)?(.+)$/i) || rest.match(/^(.+?)\s+bb$/i);
+  // "CO vs LJ 25bb", "BB vs SB shove 15bb", "LJ vs 3bet BTN 40bb".
+  if (/\bvs\b|\bversus\b|\bfacing\b/i.test(rest) && !/limp/i.test(rest)) {
+    const f = spotFromText(l);
+    if (f.type === 'vs' && f.seat && f.vs) return { type: 'vs', seat: f.seat, vs: f.vs, line: f.line, stack: s };
+  }
+  const bb =rest.match(/^bb\s+(?:vs\.?\s*)?(?:open\s+)?(.+)$/i) || rest.match(/^(.+?)\s+bb$/i);
   if (bb) return { type: 'bb', seat: seatOf(bb[1].replace(/\s+/g, ''), 'bb'), stack: s };
   const op = rest.match(/^(?:open|ouverture|rfi)\s+(\w+)$/i) || rest.match(/^(\w+)\s+(?:open|ouverture|rfi)$/i);
   if (op) return { type: 'open', seat: seatOf(op[1], 'open'), stack: s };
@@ -204,16 +255,28 @@ export function spotFromText(raw) {
   const t = noStacks(title || all);
   let type = null, seat = null;
   const vs = t.match(/\bVS\.?\b|\bV\.S\.?\b|\bVERSUS\b|\bFACING\b|\bFACE\s*(A|À)\b|\bCONTRE\b|\bDEF(ENSE|ENCE)?\b/);
-  if (/\bBB\b/.test(t) && (vs || /\bLIMP/.test(t))) {
+  if (/\bBB\b/.test(t) && /\bLIMP/.test(t)) {
     type = 'bb';
-    const after = vs ? t.slice(vs.index) : t;
     if (/LIMP\s*-?\s*(3\s*-?\s*BET|RE\s*-?\s*RAISE|RERAISE|RELANCE|RAISE)/.test(t)) seat = 'vsLimp3bet';
     else if (/LIMP\s*-?\s*(SHOVE|JAM|TAPIS|ALL\s*-?\s*IN|PUSH)/.test(t)) seat = 'vsLimpShove';
-    else if (/\bLIMP/.test(t)) seat = 'vsLimp';
-    else seat = seatIn(after.replace(/\bBB\b/g, ' '));
+    else seat = 'vsLimp';
+  } else if (vs) {
+    // "CO vs LJ open", "BB vs BTN shove", "LJ vs 3bet BTN", "Défense BB vs CO":
+    // the seat before "vs" decides, the one after is the opponent.
+    const seatOrBb = (s) => seatIn(s.replace(/\bBB\b/g, ' ')) || (/\bBB\b/.test(s) ? 'BB' : null);
+    const hero = seatOrBb(t.slice(0, vs.index)) || (/\bBB\b/.test(t) ? 'BB' : null);
+    const after = t.slice(vs.index + vs[0].length);
+    const villain = hero === 'BB' ? seatIn(after.replace(/\bBB\b/g, ' ')) : seatOrBb(after);
+    const H = ALL_SEATS.indexOf(hero), V = ALL_SEATS.indexOf(villain);
+    let line = /\b(SHOVE|JAM|PUSH|TAPIS|ALL\s*-?\s*IN|OPEN\s*-?\s*SHOVE)\b/.test(t) ? 'shove' : /\b(3\s*-?\s*BET|THREE\s*-?\s*BET)\b/.test(t) ? '3bet' : 'open';
+    // "BTN vs LJ 3bet": the BTN 3bets the LJ's open (its chart facing the open).
+    if (line === '3bet' && H >= 0 && V >= 0 && H > V) line = 'open';
+    // "LJ vs BTN" (no word for the action): the LJ faces the BTN's 3bet.
+    if (line === 'open' && !/\b(OPEN|RFI|RAISE)\b/.test(t) && H >= 0 && V >= 0 && H < V) line = '3bet';
+    return { ...spotOf(line, hero, villain), stack };
   } else {
     seat = seatIn(t);
-    if (seat || /\b(OPEN|RFI|OUVERTURE|FIRST\s*IN)\b/.test(t)) type = 'open';
+    if (seat || /\b(OPEN|RFI|OUVERTURE|FIRST\s*IN|SHOVE|PUSH)\b/.test(t)) type = 'open';
   }
   return { type, seat, stack };
 }
@@ -238,8 +301,10 @@ export function guessSpot(name) {
 
 function fromJson(raw) {
   if (!raw || typeof raw !== 'object') return { error: 'entrée vide' };
-  const type = String(raw.type || '').toLowerCase() === 'bb' ? 'bb' : String(raw.type || '').toLowerCase() === 'open' ? 'open' : raw.type;
-  const c = { type, seat: seatOf(raw.seat ?? raw.vs ?? raw.position, type), stack: +raw.stack, rows: [], ranges: {} };
+  const type = ['bb', 'open', 'vs'].includes(String(raw.type || '').toLowerCase()) ? String(raw.type).toLowerCase() : raw.type;
+  const c = type === 'vs'
+    ? { type, seat: seatOf(raw.seat ?? raw.position, 'vs'), vs: seatOf(raw.vs, 'vs'), line: String(raw.line || '').toLowerCase(), stack: +raw.stack, rows: [], ranges: {} }
+    : { type, seat: seatOf(raw.seat ?? raw.vs ?? raw.position, type), stack: +raw.stack, rows: [], ranges: {} };
   if (Array.isArray(raw.grid)) c.rows = raw.grid.map((r) => String(r).replace(/[\s|,;]/g, ''));
   else if (raw.ranges && typeof raw.ranges === 'object') for (const [k, v] of Object.entries(raw.ranges)) { if (actionOf(k)) c.ranges[actionOf(k)] = String(v); }
   else if (typeof raw.range === 'string') c.ranges.raise = raw.range;
@@ -252,9 +317,10 @@ const actionOf = (s) => ACTIONS[s.toLowerCase().replace(/\s+/g, '')] || null;
 function finish(c) {
   if (c.bad) return { error: c.bad };
   const { type, seat, stack } = c;
+  const spot = type === 'vs' ? { type, seat, vs: c.vs, line: c.line, stack } : { type, seat, stack };
   if (c.rows.length) {
     if (c.rows.length !== 13) return { error: `${c.rows.length} ligne(s) de grille au lieu de 13` };
-    return { type, seat, stack, grid: c.rows };
+    return { ...spot, grid: c.rows };
   }
   if (!Object.keys(c.ranges).length) return { error: 'ni grille ni range' };
   const w = {};
@@ -274,7 +340,7 @@ function finish(c) {
     }
     grid.push(line);
   }
-  return { type, seat, stack, grid };
+  return { ...spot, grid };
 }
 
 // Frequencies -> the nearest chart code (charts only hold 0, 50 and 100 %).
@@ -365,7 +431,9 @@ export const TEMPLATE = `// Modèle d'import de chartes RaiseMyPoker
 // Codes BB  : R 3bet (ou raise), A all-in, C call, K check, F fold, B 3bet light,
 //              r raise/call, c call/fold, a all-in/call, j all-in/raise
 // En-têtes : "open LJ|HJ|CO|BTN|SB 30bb", "BB vs LJ|HJ|CO|BTN|SB 30bb",
-//            "BB vs limp 25bb", "BB vs limp-relance 25bb", "BB vs limp-tapis 25bb"
+//            "BB vs limp 25bb", "BB vs limp-relance 25bb", "BB vs limp-tapis 25bb",
+//            "CO vs open LJ 25bb", "BB vs shove BTN 15bb", "LJ vs 3bet BTN 40bb"
+//            (codes BB ; face à un tapis : C call, F fold, c call/fold)
 // Stacks possibles : ${STACKS.slice().sort((a, b) => a - b).join(', ')} bb
 
 open BTN 30bb
