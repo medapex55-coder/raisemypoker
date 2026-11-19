@@ -610,7 +610,7 @@ export function explain(node, i) {
       R: 'toujours raise', A: 'tapis', a: 'tapis ou limp, 50/50', M: 'limp', m: 'limp ou fold, 50/50',
     }[code] || 'fold');
     const flex = (code) => 'LTX'.includes(code);
-    const b = chartBlend(st.cfg.stack);
+    const b = chartBlend(st.cfg.stack, st.toAct);
     if (b) {
       const lo = chartCodeAt(st.toAct, cls, b.lo), hi = chartCodeAt(st.toAct, cls, b.hi);
       parts.push(`Tes charts ${b.lo}bb (${text(lo)}) et ${b.hi}bb (${text(hi)}), ${mixNote(b)}.${flex(lo) || flex(hi) ? ` Style : ${getOpenStyle()}.` : ''}`);

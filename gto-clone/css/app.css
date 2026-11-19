@@ -664,3 +664,19 @@ h1 { font-size: 26px; }
 .session-review { border-top: 1px solid var(--border); padding-top: var(--s3); }
 .session-strip { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .session-detail .stat-value { font-size: 1.25rem; white-space: nowrap; }
+
+/* ---------- chart import (Study) ---------- */
+.import-btn { margin-left: auto; display: inline-flex; align-items: center; gap: var(--s1); }
+.chart-import { display: flex; flex-direction: column; gap: var(--s3); }
+.import-errors { margin: 0; padding: var(--s2) var(--s3) var(--s2) var(--s5); border: 1px solid var(--danger); border-radius: var(--r-md); color: var(--danger); }
+.mini-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s3); margin: var(--s2) 0; }
+.mini-fig { margin: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.mini-chart { display: grid; grid-template-columns: repeat(13, 1fr); gap: 1px; aspect-ratio: 1; background: var(--border); border: 1px solid var(--border); }
+.mini-chart span { display: block; min-width: 0; }
+.mine-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.mine-list li { padding: 4px var(--s2); border-radius: var(--r-sm); background: var(--surface-2); }
+.miss-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.miss-row { display: grid; grid-template-columns: 48px 1fr; gap: var(--s2); align-items: start; }
+.miss-spots { display: flex; flex-wrap: wrap; gap: 4px; }
+.miss-tag { font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--r-pill); background: var(--surface-2); border: 1px solid var(--border); }
+.miss-tag.bb { border-color: var(--tag-light); }

@@ -17,6 +17,8 @@ import {
 import { getSettings, setSetting } from '../store.js';
 import { TAG_NAMES } from '../data/open-charts.js';
 import { solverPanel } from './solverpanel.js';
+import { openChartImport } from './chart-import.js';
+import { getUserCharts, isUserOpen } from '../data/user-charts.js';
 import { pendingAt } from '../engine/solutions.js';
 import { comboShare } from '../engine/pushfold.js';
 import { scenarioReport, requiredEquity, riskPremium, STAGE_SCENARIOS, stageBubbleFactor, MAX_PLAYERS } from '../engine/icm.js';
@@ -204,7 +206,9 @@ function spotBar(st) {
           STACKS.map((s) => h('option', { value: String(s), selected: s === ui.cfg.stack }, s + 'bb')))),
       h('label.pick-field', 'Open',
         h('select', { 'aria-label': 'Taille d\'open', on: { change: (e) => setCfg({ open: e.target.value }) } },
-          OPEN_SIZES.map((o) => h('option', { value: o, selected: o === ui.cfg.open }, o === '2.5' && ui.cfg.stage === 'hu' ? '2.5bb' : OPEN_LABELS[o]))))),
+          OPEN_SIZES.map((o) => h('option', { value: o, selected: o === ui.cfg.open }, o === '2.5' && ui.cfg.stage === 'hu' ? '2.5bb' : OPEN_LABELS[o])))),
+      h('button.btn.secondary.sm.import-btn', { type: 'button', title: 'Importer une ou plusieurs chartes dans le solver', on: { click: () => openChartImport(render) } },
+        '⬆ Importer des chartes', getUserCharts().length ? h('span.pill', String(getUserCharts().length)) : null)),
     h('nav.line', { 'aria-label': 'Ligne d\'action' },
       h('button.chip.root', { type: 'button', title: 'Revenir au début', on: { click: () => setHistory([]) } }, '⟲'),
       chips));
@@ -588,7 +592,7 @@ const OPEN_NAMES = { R: 'Raise', A: 'All-in', M: 'Limp', F: 'Fold', ...TAG_NAMES
 function chartPanel(node) {
   if (!isFirstIn(node) || pushFoldSpot(node.st)) return null;
   const p = node.actor;
-  const stack = node.st.cfg.stack, depth = chartDepthFor(p, stack), b = chartBlend(stack);
+  const stack = node.st.cfg.stack, depth = chartDepthFor(p, stack), b = chartBlend(stack, p);
   const open = node.actions.find((a) => a.type === 'raise') || node.actions.find((a) => a.type === 'allin');
   const raiseLabel = open ? `Raise ${open.to}` : 'Limp (taille d\'open)';
   let rows;
@@ -613,7 +617,7 @@ function chartPanel(node) {
   }
   const style = getOpenStyle();
   return h('section.panel.chart-panel', { 'aria-label': 'Ton chart d\'open' },
-    h('div.panel-title', b ? `Tes charts ${b.lo}bb ↔ ${b.hi}bb · ${POS[p]} first in` : `Ton chart ${depth}bb · ${POS[p]} first in`),
+    h('div.panel-title', b ? `Tes charts ${b.lo}bb ↔ ${b.hi}bb · ${POS[p]} first in` : `Ton chart ${depth}bb · ${POS[p]} first in${isUserOpen(POS[p], depth) ? ' (importé)' : ''}`),
     b ? blendNote(b, stack) : stack !== depth ? h('p.small.muted', `Pas de chart à ${stack}bb : c'est ton chart ${depth}bb qui s'applique tel quel.`) : null,
     h('ul.chart-rows', rows.filter(([, v]) => v > 0.0005).map(([label, v, color, k]) => h('li',
       color ? h('span.swatch', { style: { background: color } }) : h('span.swatch.mark-' + k),
@@ -687,7 +691,7 @@ function modelNote(node) {
 function chartMarks(node) {
   if (pushFoldSpot(node.st)) return null;
   if (isFirstIn(node)) {
-    if (chartBlend(node.st.cfg.stack)) return null;
+    if (chartBlend(node.st.cfg.stack, node.actor)) return null;
     return (i) => { const k = chartCode(node.actor, CLASSES[i], node.st.cfg.stack); return 'LTXHam'.includes(k) ? k : null; };
   }
   const ch = bbChart(node.st);
@@ -697,7 +701,7 @@ function chartMarks(node) {
 function chartNote(node, cls) {
   if (pushFoldSpot(node.st)) return null;
   if (isFirstIn(node)) {
-    const b = chartBlend(node.st.cfg.stack);
+    const b = chartBlend(node.st.cfg.stack, node.actor);
     if (b) {
       const at = (d) => OPEN_NAMES[chartCodeAt(node.actor, cls, d)] || 'Fold';
       return h('p.small.tag-note', 'Dans tes charts : ', h('strong', `${b.lo}bb ${at(b.lo)}`), ' · ', h('strong', `${b.hi}bb ${at(b.hi)}`));

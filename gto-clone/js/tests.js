@@ -13,6 +13,7 @@ import { createParallelSolver } from './engine/solver-parallel.js';
 import { addSolution } from './engine/solutions.js';
 import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine } from './engine/strategy.js';
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
+import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE } from './data/user-charts.js';
 import { icmEquities, bubbleFactor, requiredEquity } from './engine/icm.js';
 import { gradeDecision } from './ui/practice.js';
 import { prizeLadder, splitPots, createTournament, fieldAt, heroBubbleFactor, tournamentReport, nextHand, settleHand } from './data/tournament.js';
@@ -312,6 +313,29 @@ await test('U24-X', 'exact-stack open charts (BTN 10-14bb) replace the push/fold
   near(share(12, 'raise'), 0.038, 0.002, '12bb raise'); near(share(12, 'allin'), 0.302, 0.002, '12bb all-in');
   near(share(11, 'raise'), 0.03, 0.002, '11bb raise'); near(share(11, 'allin'), 0.315, 0.002, '11bb all-in');
   near(share(10, 'raise'), 0.026, 0.002, '10bb raise'); near(share(10, 'allin'), 0.365, 0.002, '10bb all-in');
+});
+await test('U24-Y', 'imported charts: text and JSON parse, then replace the open and BB charts at their stack', () => {
+  const saved = getUserCharts();
+  try {
+    const t = parseChartText('open BTN 30bb\nraise: AA, KK, AKs\n\nBB vs BTN 30bb\nraise: AA\ncall: KK-22, AKs:0.5\n\nopen XX 30bb\nraise: AA', 't');
+    assert(t.charts.length === 2 && t.errors.length === 1, `2 charts, 1 error: ${t.charts.length} / ${t.errors.join(' ; ')}`);
+    assert(t.charts[1].grid[0][1] === 'c' && t.charts[1].grid[1][1] === 'C', 'AKs call 50 % -> c, KK call -> C');
+    const tpl = parseChartText(TEMPLATE, 'modèle');
+    assert(tpl.charts.length === 3 && !tpl.errors.length, `the template reads: ${tpl.errors.join(' ; ')}`);
+    const j = parseChartText(JSON.stringify({ charts: [{ type: 'open', seat: 'CO', stack: 30, grid: Array(13).fill('RRRRRRRRRRRRR') }] }), 'j');
+    assert(j.charts.length === 1, 'JSON chart');
+    clearUserCharts();
+    addUserCharts(t.charts);
+    const btn = foldTo(initialState({ stack: 30, open: '2.5' }), 3);
+    const freq = (n, name, type) => comboFreqs(n, CLASS_BY_NAME[name].combos[0])[n.actions.findIndex((a) => a.type === type)];
+    const n = analyze(btn);
+    assert(freq(n, 'AKs', 'raise') === 1 && freq(n, 'AQs', 'fold') === 1, 'BTN 30bb follows the imported chart, not the 25/50 blend');
+    const bb = act(act(btn, 'raise'), 'fold');
+    const ch = bbChart(bb);
+    assert(ch && /importé/.test(ch.title) && ch.parts[0].depth === 30, 'BB vs BTN 30bb uses the imported chart');
+    const nb = analyze(bb);
+    assert(freq(nb, 'KK', 'call') === 1 && freq(nb, 'AA', 'raise') === 1, 'BB plays the imported chart');
+  } finally { clearUserCharts(); addUserCharts(saved); }
 });
 
 await test('D01', 'PokerStars summary: buy-in, players, prize pool, place, prize, re-entry', () => {

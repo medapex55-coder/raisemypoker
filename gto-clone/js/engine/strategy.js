@@ -11,6 +11,7 @@ import { OPEN_CHARTS } from '../data/open-charts.js';
 import { OPEN_CHARTS_50, BB_CHARTS_50, BB_CODES } from '../data/charts-50.js';
 import { OPEN_CHARTS_25, OPEN_CHARTS_20, BB_CHARTS_25, BB_CHARTS_20 } from '../data/charts-short.js';
 import { OPEN_CHARTS_EXACT } from '../data/charts-exact.js';
+import { userOpenChart, userBbCharts, onUserCharts } from '../data/user-charts.js';
 import { VS_OPEN_100 } from '../data/charts-100.js';
 import { stageBubbleFactor } from './icm.js';
 import { solutionAt, onSolution } from './solutions.js';
@@ -95,7 +96,9 @@ export const chartFits = (stack) => stack >= 0.8 * chartDepth(stack) && stack <=
 // Between two chart depths (25-50bb, 50-100bb) the charts are blended: each
 // hand's frequencies move in a straight line from the lower chart (t = 0) to
 // the upper one (t = 1). 30bb is 80% the 25bb chart, 40bb 60% the 50bb one.
-export function chartBlend(stack) {
+// Given a seat p, a chart for that exact stack (imported) means no blend.
+export function chartBlend(stack, p) {
+  if (p != null && exactChart(p, stack)) return null;
   if (stack > 25 && stack < 50) return { lo: 25, hi: 50, t: (stack - 25) / 25 };
   if (stack > 50 && stack < 100) return { lo: 50, hi: 100, t: (stack - 50) / 50 };
   return null;
@@ -106,13 +109,14 @@ const BB_BY_DEPTH = { 20: { charts: BB_CHARTS_20 }, 25: { charts: BB_CHARTS_25 }
 // The other seats' charts facing a single open: { [defender]: { [opener]: chart } }.
 const DEF_BY_DEPTH = { 100: VS_OPEN_100 };
 const chartOpen = (open) => open === '2' || open === '2.5';
-// A chart given for this exact stack and seat (10 to 19bb), or null.
-export const exactChart = (p, stack) => OPEN_CHARTS_EXACT[stack]?.[POS[p]] || null;
+// A chart given for this exact stack and seat (10 to 19bb, or imported in
+// Study at any stack), or null. Imported charts win over the built-in ones.
+export const exactChart = (p, stack) => userOpenChart(POS[p], stack) || OPEN_CHARTS_EXACT[stack]?.[POS[p]] || null;
 // The depth of the chart a seat opens with: its exact stack, or the nearest chart depth.
 export const chartDepthFor = (p, stack) => (exactChart(p, stack) ? stack : chartDepth(stack));
 
 export function chartCodeAt(p, cls, depth) {
-  const ch = OPEN_BY_DEPTH[depth][POS[p]];
+  const ch = userOpenChart(POS[p], depth) || OPEN_BY_DEPTH[depth][POS[p]];
   return ch ? ch[cls.row][cls.col] : null;
 }
 export function chartCode(p, cls, stack = 100) {
@@ -123,7 +127,7 @@ export function chartCode(p, cls, stack = 100) {
 const mix = (a, b, t) => Object.fromEntries(['raise', 'limp', 'fold', 'jam'].map((k) => [k, (1 - t) * (a[k] || 0) + t * (b[k] || 0)]));
 // First-in frequencies of a hand: its chart, or the blend of the two charts around the stack.
 export function openFreqs(p, cls, stack) {
-  const b = chartBlend(stack);
+  const b = chartBlend(stack, p);
   if (!b) return codeFreqs(chartCode(p, cls, stack));
   return mix(codeFreqs(chartCodeAt(p, cls, b.lo)), codeFreqs(chartCodeAt(p, cls, b.hi)), b.t);
 }
@@ -131,8 +135,20 @@ export function openFreqs(p, cls, stack) {
 // The BB's chart at one depth for this spot, or null: vs a limp from the SB,
 // vs a single open (not an all-in) with nobody else in, and vs the SB's
 // limp-reraise or limp-shove after the BB raised.
+// The BB's charts at a stack: the built-in set, with the imported ones on top.
+function bbSetAt(stack) {
+  const user = userBbCharts(stack), base = BB_BY_DEPTH[stack];
+  if (!user) return base || null;
+  return { charts: { ...(base?.charts || {}), ...user } };
+}
+// Is there a chart (built-in or imported) for exactly this spot and stack?
+// type 'open' (seat LJ..SB) or 'bb' (vs LJ..SB, vsLimp, vsLimp3bet, vsLimpShove).
+export function hasChart(type, seat, stack) {
+  if (type === 'open') return !!(userOpenChart(seat, stack) || OPEN_CHARTS_EXACT[stack]?.[seat] || OPEN_BY_DEPTH[stack]?.[seat]);
+  return !!bbSetAt(stack)?.charts?.[seat];
+}
 function bbChartAt(st, depth) {
-  const set = BB_BY_DEPTH[depth];
+  const set = bbSetAt(depth);
   if (!set) return null;
   const sbLimp = st.limpers.length === 1 && st.limpers[0] === 4;
   if (st.raiseLevel === 0) return sbLimp ? set.charts.vsLimp || null : null;
@@ -155,6 +171,11 @@ export function bbChart(st) {
   if (st.street !== 0 || st.toAct < 0 || isHU(st) || !chartOpen(cfg.open)) return null;
   if (Math.abs(rangeScale(cfg) - 1) > 0.005) return null;
   if (st.toAct !== 5) return defChart(st);
+  // A BB chart imported for this exact stack plays as is.
+  if (userBbCharts(cfg.stack)) {
+    const ex = bbChartAt(st, cfg.stack);
+    if (ex) return { title: ex.title, raiseLabel: ex.raiseLabel, blend: null, parts: [{ chart: ex, depth: cfg.stack, w: 1 }] };
+  }
   const b = chartBlend(cfg.stack);
   if (b && b.hi === 50) {
     const lo = bbChartAt(st, 25), hi = bbChartAt(st, 50);
@@ -163,7 +184,7 @@ export function bbChart(st) {
     return { title: hi.title, raiseLabel, blend: b, parts: [{ chart: lo, depth: 25, w: 1 - b.t }, { chart: hi, depth: 50, w: b.t }] };
   }
   const depth = chartDepth(cfg.stack);
-  if (!BB_BY_DEPTH[depth] || !chartFits(cfg.stack)) return null;
+  if (!bbSetAt(depth) || !chartFits(cfg.stack)) return null;
   const ch = bbChartAt(st, depth);
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] } : null;
 }
@@ -532,6 +553,7 @@ function makeNode(st, ranges) {
 export const isCached = (st) => cache.has(stateKey(st));
 // A new solution changes nodes and the ranges below them: start over.
 onSolution(() => cache.clear());
+onUserCharts(() => cache.clear());
 
 // Each player's range at this point of the hand (weights per combo), from the
 // parent decision's strategy. Works on states waiting for a board too.
