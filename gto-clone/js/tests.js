@@ -13,7 +13,7 @@ import { createParallelSolver } from './engine/solver-parallel.js';
 import { addSolution } from './engine/solutions.js';
 import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine } from './engine/strategy.js';
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
-import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText, userChartsReady } from './data/user-charts.js';
+import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText, userChartsReady, vsSeats, lineVillains, spotTitle } from './data/user-charts.js';
 import { idbGet } from './data/idb.js';
 import { detectGrid, sampleCells, clusterColors, gridFrom, imageDataOf, legendEntries, legendType, legendCodes, colorBoxes } from './data/chart-image.js';
 import { icmEquities, bubbleFactor, requiredEquity } from './engine/icm.js';
@@ -468,6 +468,41 @@ await test('U24-V', 'charts for other spots: a seat facing an open, an open shov
     assert(b.toAct === 0 && b.raiseLevel === 2 && /importé/.test(bbChart(b)?.title || ''), `LJ vs 3bet BTN uses the imported chart: ${bbChart(b)?.title} (${b.toAct})`);
     const nb = analyze(b);
     assert(freq(nb, 'QQ', 'call') === 1 && freq(nb, 'AQs', 'fold') === 1, 'LJ plays the imported chart vs the 3bet');
+  } finally { clearUserCharts(); addUserCharts(saved); }
+});
+await test('U24-W', 'more spots: a shove from any seat (open shove or 3bet shove) and the BB facing the SB\'s 3bet after its limp', () => {
+  assert(vsSeats('shove', 'BB').join() === 'LJ,HJ,CO,BTN,SB' && lineVillains('shove').length === 6, `shove seats: ${vsSeats('shove', 'BB')}`);
+  assert(vsSeats('3bet', 'SB').join() === 'LJ,HJ,CO,BTN,BB', `3bet by the SB: ${vsSeats('3bet', 'SB')}`);
+  const cases = {
+    'LJ vs BTN 3bet shove 20bb': 'vs LJ BTN shove 20', 'CO vs shove BB 15bb': 'vs CO BB shove 15', 'BB vs SB 3bet 25bb': 'vs BB SB 3bet 25',
+    'SB 3b-shove vs CO 12bb': 'vs SB CO open 12', 'BB 3bet shove vs BTN 15bb': 'bb BTN undefined undefined 15',
+  };
+  for (const [text, want] of Object.entries(cases)) {
+    const f = spotFromText(text);
+    assert(`${f.type} ${f.seat} ${f.vs} ${f.line} ${f.stack}` === want, `« ${text} » -> ${f.type} ${f.seat} ${f.vs} ${f.line} ${f.stack}, attendu ${want}`);
+  }
+  assert(spotTitle({ type: 'vs', seat: 'LJ', vs: 'BTN', line: 'shove' }) === 'LJ vs 3bet-tapis BTN', 'title of a 3bet shove');
+  const back = spotFromText('LJ vs 3bet-tapis BTN 20bb');
+  assert(back.line === 'shove' && back.seat === 'LJ' && back.vs === 'BTN', `title read back: ${JSON.stringify(back)}`);
+  const saved = getUserCharts();
+  try {
+    clearUserCharts();
+    const C = Array(13).fill('CCCCCCCCCCCCC'), F = Array(13).fill('FFFFFFFFFFFFF');
+    addUserCharts([
+      { type: 'vs', seat: 'LJ', vs: 'BTN', line: 'shove', stack: 20, grid: C },
+      { type: 'vs', seat: 'BB', vs: 'SB', line: '3bet', stack: 25, grid: F },
+    ]);
+    const freq = (n, name, type) => comboFreqs(n, CLASS_BY_NAME[name].combos[0])[n.actions.findIndex((a) => a.type === type)];
+    // The LJ opens, the BTN 3bet shoves: the LJ calls everything (its chart).
+    let s = act(initialState({ stack: 20, open: '2' }), 'raise');
+    s = act(foldTo(s, 3), 'allin');
+    assert(s.toAct === 0 && /importé/.test(bbChart(s)?.title || ''), `LJ vs 3bet shove BTN uses the imported chart: ${bbChart(s)?.title} (${s.toAct})`);
+    assert(freq(analyze(s), '72o', 'call') === 1, 'LJ calls 72o as the chart says');
+    // SB limps, BB raises, SB 3bets: the BB folds everything (its chart).
+    let l = act(foldTo(initialState({ stack: 25, open: '2' }), 4), 'call');
+    l = act(act(l, 'raise'), 'raise');
+    assert(l.toAct === 5 && /importé/.test(bbChart(l)?.title || '') && /3bet SB/.test(bbChart(l)?.title || ''), `BB vs 3bet SB uses the imported chart: ${bbChart(l)?.title} (${l.toAct})`);
+    assert(freq(analyze(l), 'AA', 'fold') === 1, 'BB folds AA as the chart says');
   } finally { clearUserCharts(); addUserCharts(saved); }
 });
 await test('U24-K', 'Leakfinder grades with the charts of the moment: a chart added or removed in Study changes the verdict at once', () => {

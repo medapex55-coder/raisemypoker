@@ -217,7 +217,7 @@ const villainOf = (st) => (st.type === 'vs' ? st.vs : st.type === 'bb' && kindOf
 function heroChoices(kind) {
   if (kind === 'first') return OPEN_SEATS.map((s) => [s, s]);
   if (kind === 'limp') return BB_VS.filter((s) => s.startsWith('vsLimp')).map((s) => [s, spotTitle({ type: 'bb', seat: s })]);
-  return (kind === '3bet' ? ALL_SEATS.slice(0, 5) : ALL_SEATS.slice(1)).map((s) => [s, s]);
+  return (kind === 'open' ? ALL_SEATS.slice(1) : ALL_SEATS).map((s) => [s, s]);
 }
 const villainChoices = (kind, hero) => lineVillains(kind).filter((v) => !hero || vsSeats(kind, v).includes(hero)).map((s) => [s, s]);
 // Sets the spot from the editor's choices (a choice that no longer fits is cleared).

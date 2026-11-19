@@ -192,17 +192,21 @@ export function bbChart(st) {
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] } : null;
 }
 // A 'vs' chart imported in Study for this exact spot and stack: a seat facing
-// a single open or open shove (everyone in between folded), or the opener
-// facing a 3bet. Same shape as bbChart's.
+// a single open or open shove (everyone in between folded), the opener facing
+// a 3bet or 3bet shove, or the BB facing the SB's 3bet after its limp.
+// Same shape as bbChart's.
 function userSpotChart(st) {
   const p = st.toAct, o = st.lastAggr, stack = st.cfg.stack;
-  if (o < 0 || p < 0 || st.limpers.length) return null;
+  const sbLimp = st.limpers.length === 1 && st.limpers[0] === 4 && p === 5 && o === 4;
+  if (o < 0 || p < 0 || (st.limpers.length && !sbLimp)) return null;
+  const look = (line) => userVsChart(POS[p], POS[o], line, stack);
   let ch = null;
-  if (st.raiseLevel === 1 && alive(st).every((i) => i === o || i >= p)) {
-    if (remaining(st, o) <= 0) ch = userVsChart(POS[p], POS[o], 'shove', stack);
-    else if (p !== 5) ch = userVsChart(POS[p], POS[o], 'open', stack);
-  } else if (st.raiseLevel === 2 && p < o && alive(st).every((i) => i === p || i === o)) { // heads-up after the 3bet: p is the opener
-    ch = userVsChart(POS[p], POS[o], '3bet', stack);
+  if (st.raiseLevel === 1 && !sbLimp && alive(st).every((i) => i === o || i >= p)) {
+    if (remaining(st, o) <= 0) ch = look('shove');
+    else if (p !== 5) ch = look('open');
+  } else if (st.raiseLevel === 2 && alive(st).every((i) => i === p || i === o)) {
+    if (sbLimp) ch = look('3bet'); // BB raised the SB's limp, the SB 3bet
+    else if (p < o) ch = (remaining(st, o) <= 0 && look('shove')) || look('3bet'); // heads-up after the 3bet: p is the opener
   }
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth: stack, w: 1 }] } : null;
 }
