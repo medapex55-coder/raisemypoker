@@ -470,6 +470,27 @@ await test('U24-V', 'charts for other spots: a seat facing an open, an open shov
     assert(freq(nb, 'QQ', 'call') === 1 && freq(nb, 'AQs', 'fold') === 1, 'LJ plays the imported chart vs the 3bet');
   } finally { clearUserCharts(); addUserCharts(saved); }
 });
+await test('U24-K', 'Leakfinder grades with the charts of the moment: a chart added or removed in Study changes the verdict at once', () => {
+  const saved = getUserCharts();
+  const F = Array(13).fill('FFFFFFFFFFFFF');
+  const cases = [
+    [{ h: 'k1', t: 't', c: 'KdQh', hp: 5, vp: 3, sc: 'VS', s: 15, o: '2', a: 'call' }, { type: 'vs', seat: 'BB', vs: 'BTN', line: 'shove', stack: 15, grid: F }],
+    [{ h: 'k2', t: 't', c: 'AsKd', hp: 2, vp: 0, sc: 'VO', s: 25, o: '2', a: 'raise' }, { type: 'vs', seat: 'CO', vs: 'LJ', line: 'open', stack: 25, grid: F }],
+    [{ h: 'k3', t: 't', c: 'AsAd', hp: 0, vp: 3, sc: 'V3', s: 30, o: '2', a: 'raise', r3: false }, { type: 'vs', seat: 'LJ', vs: 'BTN', line: '3bet', stack: 30, grid: F }],
+    [{ h: 'k4', t: 't', c: 'AsAd', hp: 2, sc: 'RFI', s: 30, o: '2', a: 'raise' }, { type: 'open', seat: 'CO', stack: 30, grid: F }],
+  ];
+  const grade = (d) => analyzeDecisions([d]).spots[0]?.hands[0]?.grade;
+  try {
+    clearUserCharts();
+    for (const [d, chart] of cases) {
+      assert(grade(d) === 'best', `${d.sc} ${d.c}: best without a chart (${grade(d)})`);
+      addUserCharts([chart]);
+      assert(grade(d) === 'blunder', `${d.sc} ${d.c}: the all-fold chart makes it a blunder (${grade(d)})`);
+      clearUserCharts();
+      assert(grade(d) === 'best', `${d.sc} ${d.c}: best again once the chart is removed (${grade(d)})`);
+    }
+  } finally { clearUserCharts(); addUserCharts(saved); }
+});
 
 await test('D01', 'PokerStars summary: buy-in, players, prize pool, place, prize, re-entry', () => {
   const s = parseFile(PS_SUMMARY).summary;

@@ -2,6 +2,7 @@
 // hero's action with the strategy for that hand class, and aggregate by spot.
 import { initialState, applyAction, legalActions, foldTo, POS, actionKey } from '../engine/game.js';
 import { analyze, getOpenStyle } from '../engine/strategy.js';
+import { onUserCharts } from './user-charts.js';
 import { CLASS_OF_COMBO, CLASSES, comboIndex, parseCard, cardStr } from '../engine/cards.js';
 
 export const SCEN = {
@@ -84,6 +85,8 @@ const GROUP_OF = { fold: 'fold', check: 'call', call: 'call', bet: 'raise', rais
 // depend on the class). Kept across calls: Leakfinder re-renders on every click
 // and thousands of decisions share a few hundred spots.
 const models = new Map();
+// A chart added or removed in Study changes the strategy: grade again with it.
+onUserCharts(() => models.clear());
 // Same stack and open size side by side: they share the parent nodes of the tree.
 const modelKey = (d) => [getOpenStyle(), d.s, spotOpen(d), !!d.ko, d.sc, d.hp, d.vp, d.lp, d.r3].join('|');
 function spotModel(d) {
