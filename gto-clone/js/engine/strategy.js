@@ -11,7 +11,7 @@ import { OPEN_CHARTS } from '../data/open-charts.js';
 import { OPEN_CHARTS_50, BB_CHARTS_50, BB_CODES } from '../data/charts-50.js';
 import { OPEN_CHARTS_25, OPEN_CHARTS_20, BB_CHARTS_25, BB_CHARTS_20 } from '../data/charts-short.js';
 import { OPEN_CHARTS_EXACT } from '../data/charts-exact.js';
-import { userOpenChart, userBbCharts, userVsChart, onUserCharts } from '../data/user-charts.js';
+import { userOpenChart, userBbCharts, userVsChart, onUserCharts, nearestStack, userOpenStacks, userBbStacks, userVsStacks } from '../data/user-charts.js';
 import { VS_OPEN_100 } from '../data/charts-100.js';
 import { stageBubbleFactor } from './icm.js';
 import { solutionAt, onSolution } from './solutions.js';
@@ -111,9 +111,23 @@ const DEF_BY_DEPTH = { 100: VS_OPEN_100 };
 const chartOpen = (open) => open === '2' || open === '2.5';
 // A chart given for this exact stack and seat (10 to 19bb, or imported in
 // Study at any stack), or null. Imported charts win over the built-in ones.
-export const exactChart = (p, stack) => userOpenChart(POS[p], stack) || OPEN_CHARTS_EXACT[stack]?.[POS[p]] || null;
-// The depth of the chart a seat opens with: its exact stack, or the nearest chart depth.
-export const chartDepthFor = (p, stack) => (exactChart(p, stack) ? stack : chartDepth(stack));
+// With no chart at the stack, the chart with the nearest stack plays: an
+// imported one wins when no built-in chart is nearer (a tie goes to the import).
+export const exactChart = (p, stack) => userOpenChart(POS[p], stack) || OPEN_CHARTS_EXACT[stack]?.[POS[p]] || userOpenChart(POS[p], nearUserOpen(p, stack)) || null;
+// The stack of the imported open chart nearest to `stack`, when no built-in
+// chart (20, 25, 50, 100bb, the 10-19bb ones) is nearer; else null.
+function nearUserOpen(p, stack) {
+  const seat = POS[p], n = nearestStack(userOpenStacks(seat), stack);
+  if (n == null) return null;
+  const built = [...Object.keys(OPEN_CHARTS_EXACT).filter((s) => OPEN_CHARTS_EXACT[s][seat]).map(Number), ...[20, 25, 50, 100].filter((d) => OPEN_BY_DEPTH[d][seat])];
+  return built.some((s) => Math.abs(s - stack) < Math.abs(n - stack)) ? null : n;
+}
+// The depth of the chart a seat opens with: its exact stack, the nearest
+// imported chart's, or the nearest chart depth.
+export function chartDepthFor(p, stack) {
+  if (userOpenChart(POS[p], stack) || OPEN_CHARTS_EXACT[stack]?.[POS[p]]) return stack;
+  return nearUserOpen(p, stack) ?? chartDepth(stack);
+}
 
 export function chartCodeAt(p, cls, depth) {
   const ch = userOpenChart(POS[p], depth) || OPEN_BY_DEPTH[depth][POS[p]];
@@ -172,8 +186,35 @@ export function bbChart(st) {
   if (Math.abs(rangeScale(cfg) - 1) > 0.005) return null;
   const u = userSpotChart(st); // imported for this exact spot: wins
   if (u) return u;
-  if (!chartOpen(cfg.open)) return null;
-  if (st.toAct !== 5) return defChart(st);
+  // No chart imported at this stack: the one imported for the same spot at the
+  // nearest stack plays, unless a built-in chart is nearer (a tie goes to the import).
+  const near = userSpotChart(st, true);
+  if (!chartOpen(cfg.open)) return near;
+  if (st.toAct !== 5) return closest(cfg.stack, [near, defChart(st)]);
+  return closest(cfg.stack, [near, userBbNear(st), bbBuilt(st)]);
+}
+// How far a chart is from the stack: its depth's, or the nearer of a blend's two.
+const gap = (spot, stack) => (spot.blend ? Math.min(stack - spot.blend.lo, spot.blend.hi - stack) : Math.abs(spot.parts[0].depth - stack));
+// The nearest of the charts (null ones skipped); on a tie, the first listed.
+function closest(stack, list) {
+  let best = null;
+  for (const s of list) if (s && (!best || gap(s, stack) < gap(best, stack))) best = s;
+  return best;
+}
+const oneChart = (ch, depth) => ({ title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] });
+// The BB chart imported for this spot at the stack nearest to the hand's, or null.
+function userBbNear(st) {
+  const stack = st.cfg.stack;
+  const stacks = [...new Set(userBbStacks())].sort((a, b) => Math.abs(a - stack) - Math.abs(b - stack) || a - b);
+  for (const s of stacks) {
+    const user = userBbCharts(s), ch = user && bbChartAt(st, s);
+    if (ch?.user) return oneChart(ch, s);
+  }
+  return null;
+}
+// The BB's built-in charts (with any imported at 20, 25 or 50bb on top).
+function bbBuilt(st) {
+  const { cfg } = st;
   // A BB chart imported for this exact stack plays as is.
   if (userBbCharts(cfg.stack)) {
     const ex = bbChartAt(st, cfg.stack);
@@ -194,12 +235,19 @@ export function bbChart(st) {
 // A 'vs' chart imported in Study for this exact spot and stack: a seat facing
 // a single open or open shove (everyone in between folded), the opener facing
 // a 3bet or 3bet shove, or the BB facing the SB's 3bet after its limp.
-// Same shape as bbChart's.
-function userSpotChart(st) {
-  const p = st.toAct, o = st.lastAggr, stack = st.cfg.stack;
+// Same shape as bbChart's. near: the chart imported for the same spot at the
+// nearest stack when none is at this one.
+function userSpotChart(st, near = false) {
+  const p = st.toAct, o = st.lastAggr;
+  let stack = st.cfg.stack;
   const sbLimp = st.limpers.length === 1 && st.limpers[0] === 4 && p === 5 && o === 4;
   if (o < 0 || p < 0 || (st.limpers.length && !sbLimp)) return null;
-  const look = (line) => userVsChart(POS[p], POS[o], line, stack);
+  const look = (line) => {
+    const s = near ? nearestStack(userVsStacks(POS[p], POS[o], line), st.cfg.stack) : st.cfg.stack;
+    const ch = s == null ? null : userVsChart(POS[p], POS[o], line, s);
+    if (ch) stack = s;
+    return ch;
+  };
   let ch = null;
   if (st.raiseLevel === 1 && !sbLimp && alive(st).every((i) => i === o || i >= p)) {
     if (remaining(st, o) <= 0) ch = look('shove');
@@ -227,7 +275,7 @@ export function pushFoldSpot(st) {
   const p = st.toAct;
   if (st.raiseLevel === 0 && p <= 4) return exactChart(p, cfg.stack) ? null : { kind: 'push', i: p, nash: pushFoldNash(cfg.stack) }; // the user's chart wins
   if (st.raiseLevel === 1 && remaining(st, st.lastAggr) <= 0 && p > st.lastAggr) {
-    if (userSpotChart(st)) return null; // the user's chart facing this shove wins
+    if (userSpotChart(st, true)) return null; // the user's chart facing this shove wins (at the nearest stack)
     return { kind: 'call', i: st.lastAggr, j: p, nash: pushFoldNash(cfg.stack) };
   }
   return null;

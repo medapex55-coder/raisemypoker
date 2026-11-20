@@ -11,7 +11,7 @@ import { initialState, applyAction, legalActions, foldTo, dealBoard, replay, POS
 import { solve, createSolver } from './engine/solver.js';
 import { createParallelSolver } from './engine/solver-parallel.js';
 import { addSolution } from './engine/solutions.js';
-import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine } from './engine/strategy.js';
+import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine, chartDepthFor } from './engine/strategy.js';
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
 import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText, userChartsReady, vsSeats, lineVillains, spotTitle } from './data/user-charts.js';
 import { idbGet } from './data/idb.js';
@@ -503,6 +503,43 @@ await test('U24-W', 'more spots: a shove from any seat (open shove or 3bet shove
     l = act(act(l, 'raise'), 'raise');
     assert(l.toAct === 5 && /importé/.test(bbChart(l)?.title || '') && /3bet SB/.test(bbChart(l)?.title || ''), `BB vs 3bet SB uses the imported chart: ${bbChart(l)?.title} (${l.toAct})`);
     assert(freq(analyze(l), 'AA', 'fold') === 1, 'BB folds AA as the chart says');
+  } finally { clearUserCharts(); addUserCharts(saved); }
+});
+await test('U24-N', 'no chart at the stack: the chart imported for the same spot at the nearest stack plays', () => {
+  const saved = getUserCharts();
+  try {
+    clearUserCharts();
+    const C = Array(13).fill('CCCCCCCCCCCCC'), F = Array(13).fill('FFFFFFFFFFFFF'), R = Array(13).fill('RRRRRRRRRRRRR');
+    addUserCharts([
+      { type: 'vs', seat: 'BB', vs: 'BTN', line: 'shove', stack: 15, grid: C },
+      { type: 'vs', seat: 'BB', vs: 'BTN', line: 'shove', stack: 30, grid: F },
+      { type: 'vs', seat: 'CO', vs: 'LJ', line: 'open', stack: 30, grid: F },
+      { type: 'open', seat: 'CO', stack: 40, grid: F },
+      { type: 'bb', seat: 'CO', stack: 70, grid: R },
+    ]);
+    const freq = (n, name, type) => comboFreqs(n, CLASS_BY_NAME[name].combos[0])[n.actions.findIndex((a) => a.type === type)];
+    const bbVsShove = (stack) => act(act(foldTo(initialState({ stack, open: '2' }), 3), 'allin'), 'fold');
+    // 13bb and 18bb: the 15bb chart (nearest), not push/fold; 25bb: 30bb is nearer.
+    for (const stack of [13, 18]) {
+      const s = bbVsShove(stack), ch = bbChart(s);
+      assert(!pushFoldSpot(s) && ch?.parts[0].depth === 15, `BB vs BTN shove ${stack}bb plays the 15bb chart: ${ch?.parts[0].depth}`);
+      assert(freq(analyze(s), '72o', 'call') === 1, `${stack}bb: calls 72o as the 15bb chart says`);
+    }
+    assert(bbChart(bbVsShove(25))?.parts[0].depth === 30, 'BB vs BTN shove 25bb plays the 30bb chart');
+    // CO facing the LJ's open at 25 and 100bb: the 30bb chart, the only one.
+    for (const stack of [25, 100]) {
+      const co = act(act(initialState({ stack, open: '2.5' }), 'raise'), 'fold');
+      assert(bbChart(co)?.parts[0].depth === 30 && freq(analyze(co), 'AA', 'fold') === 1, `CO vs LJ ${stack}bb plays the 30bb chart`);
+    }
+    // CO first in: 35bb is nearer the imported 40bb than the built-in 25 and 50bb; 30bb nearer 25bb.
+    assert(chartDepthFor(2, 35) === 40 && freq(analyze(foldTo(initialState({ stack: 35, open: '2' }), 2)), 'AA', 'fold') === 1, 'CO open 35bb plays the 40bb import');
+    assert(chartDepthFor(2, 30) !== 40, 'CO open 30bb keeps the built-in charts');
+    // BB vs the CO's 80bb open: the 70bb import (no built-in BB chart deeper than 50bb).
+    const bch = bbChart(foldTo(act(foldTo(initialState({ stack: 80, open: '2.5' }), 2), 'raise'), 5));
+    assert(bch?.parts[0].depth === 70 && /importé/.test(bch.title), `BB vs CO 80bb plays the 70bb import: ${bch?.parts[0].depth} ${bch?.title}`);
+    // Removed: back to the model.
+    clearUserCharts();
+    assert(!bbChart(bbVsShove(18)) && pushFoldSpot(bbVsShove(13)), 'no import: model and push/fold again');
   } finally { clearUserCharts(); addUserCharts(saved); }
 });
 await test('U24-K', 'Leakfinder grades with the charts of the moment: a chart added or removed in Study changes the verdict at once', () => {

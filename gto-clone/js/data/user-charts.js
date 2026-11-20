@@ -132,6 +132,19 @@ export function userVsChart(seat, vs, line, stack) {
   const grid = line === 'shove' ? c.grid.map(shoveRow) : c.grid;
   return { title: spotTitle(c) + ' (importé)', raiseLabel: LINE_RAISE[line], grid, user: true };
 }
+// The stacks the user imported a chart for in one slot (same spot, any stack).
+export const userOpenStacks = (seat) => charts.filter((c) => c.type === 'open' && c.seat === seat).map((c) => c.stack);
+export const userBbStacks = () => charts.filter((c) => c.type === 'bb').map((c) => c.stack);
+export const userVsStacks = (seat, vs, line) => charts.filter((c) => c.type === 'vs' && c.seat === seat && c.vs === vs && c.line === line).map((c) => c.stack);
+// The stack in the list nearest to `stack` (the shorter one on a tie), or null.
+export function nearestStack(list, stack) {
+  let best = null;
+  for (const s of list) {
+    const d = Math.abs(s - stack), bd = best == null ? Infinity : Math.abs(best - stack);
+    if (d < bd || (d === bd && s < best)) best = s;
+  }
+  return best;
+}
 // Facing an all-in there is only call or fold: any aggressive code is a call.
 export const shoveRow = (row) => row.replace(/[RABjraq]/g, 'C').replace(/[Kn]/g, 'F');
 

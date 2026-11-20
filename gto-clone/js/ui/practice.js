@@ -597,7 +597,9 @@ export function explain(node, i) {
   if (call > 0 && st.raiseLevel > 0) parts.push(`Payer coûte ${num(call)}bb pour un pot de ${num(pot(st))}bb : il te faut environ ${pct(call / (pot(st) + call))} d'équité pour être rentable, avant position et mises futures.`);
   const firstIn = st.street === 0 && st.raiseLevel === 0 && !st.limpers.length && st.toAct <= 4 && st.cfg.stage !== 'hu';
   const cls = CLASSES[CLASS_OF_COMBO[i]];
-  const mixNote = (b) => `mélangés à ${st.cfg.stack}bb (${Math.round((1 - b.t) * 100)} % / ${Math.round(b.t * 100)} %)`;
+  // A chart from another stack: none at this one, the nearest plays.
+  const nearNote = (d) => (d !== st.cfg.stack ? `, le plus proche de ${st.cfg.stack}bb` : '');
+  const mixNote = (b) =>`mélangés à ${st.cfg.stack}bb (${Math.round((1 - b.t) * 100)} % / ${Math.round(b.t * 100)} %)`;
   const pf = pushFoldSpot(st);
   if (pf) {
     const s = pf.kind === 'push' ? pf.nash.push[pf.i] : pf.nash.call[pf.i][pf.j];
@@ -616,7 +618,8 @@ export function explain(node, i) {
       parts.push(`Tes charts ${b.lo}bb (${text(lo)}) et ${b.hi}bb (${text(hi)}), ${mixNote(b)}.${flex(lo) || flex(hi) ? ` Style : ${getOpenStyle()}.` : ''}`);
     } else {
       const code = chartCode(st.toAct, cls, st.cfg.stack);
-      parts.push(`Ton chart ${chartDepthFor(st.toAct, st.cfg.stack)}bb : ${text(code)}.${flex(code) ? ` Style : ${getOpenStyle()}.` : ''}`);
+      const d = chartDepthFor(st.toAct, st.cfg.stack);
+      parts.push(`Ton chart ${d}bb${nearNote(d)} : ${text(code)}.${flex(code) ? ` Style : ${getOpenStyle()}.` : ''}`);
     }
   }
   const ch = bbChart(st);
@@ -629,7 +632,7 @@ export function explain(node, i) {
       q: st.raiseLevel === 0 ? `check, parfois ${label} (15 %)` : `call, parfois ${label} (15 %)`,
     }[code]);
     const codes = ch.parts.map((pt) => `${pt.depth}bb ${text(pt.chart.grid[cls.row][cls.col])}`);
-    parts.push(ch.blend ? `Tes charts BB (${ch.title}) : ${codes.join(', ')}, ${mixNote(ch.blend)}.` : `Ton chart ${ch.parts[0].depth}bb (${ch.title}) : ${text(bbCode(ch, cls))}.`);
+    parts.push(ch.blend ? `Tes charts BB (${ch.title}) : ${codes.join(', ')}, ${mixNote(ch.blend)}.` : `Ton chart ${ch.parts[0].depth}bb (${ch.title})${nearNote(ch.parts[0].depth)} : ${text(bbCode(ch, cls))}.`);
   }
   if (st.street === 0 && !firstIn && !ch && !pf) parts.push('Référence : pas de chart pour ce spot, c\'est le modèle RaiseMyPoker (le même que dans Étude).');
   return parts.join(' ');
