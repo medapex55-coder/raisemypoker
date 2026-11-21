@@ -24,19 +24,24 @@ export const ALL_SEATS = ['LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 export const VS_LINES = ['open', 'shove', '3bet'];
 const LINE_WORD = { open: 'open', shove: 'tapis', '3bet': '3bet' };
 const LINE_RAISE = { open: '3bet', shove: 'Tapis', '3bet': '4bet' };
-// Seats that can face this line from vs (open: after vs; shove: any other
-// seat; 3bet: the opener, before vs, or the BB vs the SB).
+// Seats that can face this line from vs (open: after vs, or the SB when the
+// BB raised its limp; shove: any other seat; 3bet: the opener, before vs, or
+// the BB vs the SB).
 export function vsSeats(line, vs) {
   const i = ALL_SEATS.indexOf(vs);
   if (i < 0) return [];
   if (line === 'shove') return ALL_SEATS.filter((s) => s !== vs);
   if (line === '3bet') return ALL_SEATS.filter((s, j) => (j < i && j < 5) || (vs === 'SB' && s === 'BB'));
+  if (vs === 'BB') return ['SB']; // the SB limped, the BB raised
   return ALL_SEATS.slice(i + 1);
 }
-// Seats that can make this line (open: LJ..SB; shove: any; 3bet: HJ..BB).
-export const lineVillains = (line) => (line === '3bet' ? ALL_SEATS.slice(1) : line === 'shove' ? ALL_SEATS.slice() : ALL_SEATS.slice(0, 5));
-// A shove from after the seat answers its open: a 3bet shove.
-const lineWord = (c) => (c.line === 'shove' && ALL_SEATS.indexOf(c.vs) > ALL_SEATS.indexOf(c.seat) ? '3bet-tapis' : LINE_WORD[c.line] || '?');
+// Seats that can make this line (open: any, the BB's being a raise over the
+// SB's limp; shove: any; 3bet: HJ..BB).
+export const lineVillains = (line) => (line === '3bet' ? ALL_SEATS.slice(1) : ALL_SEATS.slice());
+// A shove from after the seat answers its open: a 3bet shove. The BB's raise
+// over the SB's limp: 'SB vs relance BB'.
+const lineWord = (c) => (c.line === 'shove' && ALL_SEATS.indexOf(c.vs) > ALL_SEATS.indexOf(c.seat) ? '3bet-tapis'
+  : c.line === 'open' && c.vs === 'BB' ? 'relance' : LINE_WORD[c.line] || '?');
 // The chart's slot for a decision: the BB facing an open is a 'bb' chart.
 export function spotOf(line, seat, vs) {
   if (line === 'open' && seat === 'BB') return { type: 'bb', seat: vs || null };
@@ -295,7 +300,8 @@ export function spotFromText(raw) {
     // shoves) the opener's open: its chart facing the open.
     if ((line === '3bet' || (line === 'shove' && three)) && H >= 0 && V >= 0 && H > V && !(hero === 'BB' && villain === 'SB' && line === '3bet')) line = 'open';
     // "LJ vs BTN" (no word for the action): the LJ faces the BTN's 3bet.
-    if (line === 'open' && !/\b(OPEN|RFI|RAISE)\b/.test(t) && H >= 0 && V >= 0 && H < V) line = '3bet';
+    // "SB vs relance BB": the BB raised the SB's limp.
+    if (line === 'open' && !/\b(OPEN|RFI|RAISE|RELANCE)\b/.test(t) && H >= 0 && V >= 0 && H < V) line = '3bet';
     return { ...spotOf(line, hero, villain), stack };
   } else {
     seat = seatIn(t);

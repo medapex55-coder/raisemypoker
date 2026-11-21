@@ -205,21 +205,31 @@ const cellCodes = (st) => (st.type === 'vs' && st.line === 'shove' ? 'CcF' : CEL
 
 // ---------- the spot of a chart, in the editor ----------
 // Situation: first in, facing an open, an open shove, a 3bet, or the SB's limp.
-const KINDS = [['first', 'Open / open shove (first in)'], ['open', 'Face à un open'], ['shove', 'Face à un tapis'], ['3bet', 'Face à un 3bet'], ['limp', 'BB vs limp SB']];
+// The BB facing the SB's limp is under "Face à un open" (Open ou limp de: SB
+// (limp)); the 'limp' situation keeps the limp-reraise and limp-shove.
+const KINDS = [['first', 'Open / open shove (first in)'], ['open', 'Face à un open / un limp'], ['shove', 'Face à un tapis'], ['3bet', 'Face à un 3bet'], ['limp', 'BB vs limp SB puis relance / tapis']];
 function kindOf(st) {
   if (st.type === 'open') return 'first';
   if (st.type === 'vs') return st.line;
-  return String(st.seat || '').startsWith('vsLimp') ? 'limp' : 'open';
+  return String(st.seat || '').startsWith('vsLimp') && st.seat !== 'vsLimp' ? 'limp' : 'open';
 }
 const heroOf = (st) => (st.type === 'bb' ? (kindOf(st) === 'limp' ? st.seat : 'BB') : st.seat);
 const villainOf = (st) => (st.type === 'vs' ? st.vs : st.type === 'bb' && kindOf(st) === 'open' ? st.seat : null);
 // Position (the player deciding) choices, and the opponent's, for a situation.
 function heroChoices(kind) {
   if (kind === 'first') return OPEN_SEATS.map((s) => [s, s]);
-  if (kind === 'limp') return BB_VS.filter((s) => s.startsWith('vsLimp')).map((s) => [s, spotTitle({ type: 'bb', seat: s })]);
+  if (kind === 'limp') return BB_VS.filter((s) => s.startsWith('vsLimp') && s !== 'vsLimp').map((s) => [s, spotTitle({ type: 'bb', seat: s })]);
   return (kind === 'open' ? ALL_SEATS.slice(1) : ALL_SEATS).map((s) => [s, s]);
 }
-const villainChoices = (kind, hero) => lineVillains(kind).filter((v) => !hero || vsSeats(kind, v).includes(hero)).map((s) => [s, s]);
+// Facing an open, the SB can face the BB's raise over its limp ("BB"), and the
+// BB the SB's limp ("SB (limp)", the 'vsLimp' chart).
+function villainChoices(kind, hero) {
+  const out = lineVillains(kind).filter((v) => !hero || vsSeats(kind, v).includes(hero)).map((s) => [s, kind === 'open' && s === 'BB' ? 'BB (relance après ton limp)' : s]);
+  if (kind === 'open' && hero === 'BB') out.push(['vsLimp', 'SB (limp)']);
+  return out;
+}
+const villainLabel = (kind, hero, villain) => (kind === '3bet' ? '3bet par' : kind === 'shove' ? 'Tapis de'
+  : villain === 'vsLimp' ? 'Limp de' : hero === 'BB' ? 'Open ou limp de' : villain === 'BB' ? 'Relance de' : 'Open de');
 // Sets the spot from the editor's choices (a choice that no longer fits is cleared).
 function setSpot(st, kind, hero, villain) {
   if (hero && !heroChoices(kind).some(([s]) => s === hero)) hero = null;
@@ -227,7 +237,8 @@ function setSpot(st, kind, hero, villain) {
   else if (kind === 'limp') Object.assign(st, { type: 'bb', seat: hero, vs: null, line: null });
   else {
     if (villain && !villainChoices(kind, hero).some(([s]) => s === villain)) villain = null;
-    Object.assign(st, { vs: null, line: null }, spotOf(kind, hero, villain));
+    if (villain === 'vsLimp') Object.assign(st, { type: 'bb', seat: 'vsLimp', vs: null, line: null });
+    else Object.assign(st, { vs: null, line: null }, spotOf(kind, hero, villain));
   }
 }
 
@@ -396,7 +407,7 @@ function ImageEditor(it, { onDone, onClose }) {
           sel('Situation', kind, KINDS, pickKind),
           sel(kind === 'limp' ? 'Spot' : 'Position', hero, heroChoices(kind), (v) => { setSpot(st, kind, v || null, villain); if (!st.touched) guess(st); }),
           ['first', 'limp'].includes(kind) ? null
-            : sel(kind === '3bet' ? '3bet par' : kind === 'shove' ? 'Tapis de' : 'Open de', villain, villainChoices(kind, hero), (v) => { setSpot(st, kind, hero, v || null); }),
+            : sel(villainLabel(kind, hero, villain), villain, villainChoices(kind, hero), (v) => { setSpot(st, kind, hero, v || null); }),
           sel('Stack', st.stack, STACKS.slice().sort((a, b) => b - a).map((s) => [s, s + 'bb']), (v) => { st.stack = v ? +v : null; })),
         ocrNote(st.ocr),
         h('div.panel-title', 'Couleurs trouvées'),

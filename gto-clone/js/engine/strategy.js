@@ -241,7 +241,9 @@ function userSpotChart(st, near = false) {
   const p = st.toAct, o = st.lastAggr;
   let stack = st.cfg.stack;
   const sbLimp = st.limpers.length === 1 && st.limpers[0] === 4 && p === 5 && o === 4;
-  if (o < 0 || p < 0 || (st.limpers.length && !sbLimp)) return null;
+  // The SB limped and the BB raised (or shoved): 'SB vs relance BB' / 'SB vs tapis BB'.
+  const sbIso = st.limpers.length === 1 && st.limpers[0] === 4 && p === 4 && o === 5 && st.raiseLevel === 1;
+  if (o < 0 || p < 0 || (st.limpers.length && !sbLimp && !sbIso)) return null;
   const look = (line) => {
     const s = near ? nearestStack(userVsStacks(POS[p], POS[o], line), st.cfg.stack) : st.cfg.stack;
     const ch = s == null ? null : userVsChart(POS[p], POS[o], line, s);

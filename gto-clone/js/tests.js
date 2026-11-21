@@ -505,7 +505,26 @@ await test('U24-W', 'more spots: a shove from any seat (open shove or 3bet shove
     assert(freq(analyze(l), 'AA', 'fold') === 1, 'BB folds AA as the chart says');
   } finally { clearUserCharts(); addUserCharts(saved); }
 });
-await test('U24-N', 'no chart at the stack: the chart imported for the same spot at the nearest stack plays', () => {
+await test('U24-L', 'BvB: the SB facing the BB\'s raise after its limp, and the BB vs the SB\'s limp from "Face à un open"', () => {
+  assert(vsSeats('open', 'BB').join() === 'SB' && lineVillains('open').includes('BB'), `SB vs BB raise: ${vsSeats('open', 'BB')}`);
+  assert(spotTitle({ type: 'vs', seat: 'SB', vs: 'BB', line: 'open' }) === 'SB vs relance BB', 'title');
+  const back = spotFromText('SB vs relance BB 25bb');
+  assert(back.type === 'vs' && back.seat === 'SB' && back.vs === 'BB' && back.line === 'open', `title read back: ${JSON.stringify(back)}`);
+  const t = parseChartText('SB vs open BB 25bb\nraise: AA\ncall: KK-22', 't');
+  assert(t.charts.length === 1 && !t.errors.length, `parsed: ${t.errors.join(' ; ')}`);
+  const saved = getUserCharts();
+  try {
+    clearUserCharts();
+    addUserCharts(t.charts);
+    const freq = (n, name, type) => comboFreqs(n, CLASS_BY_NAME[name].combos[0])[n.actions.findIndex((a) => a.type === type)];
+    let s = act(foldTo(initialState({ stack: 25, open: '2' }), 4), 'call'); // SB limps
+    s = act(s, 'raise'); // BB raises
+    assert(s.toAct === 4 && /relance BB/.test(bbChart(s)?.title || ''), `SB vs BB raise uses the imported chart: ${bbChart(s)?.title}`);
+    const n = analyze(s);
+    assert(freq(n, 'AA', 'raise') > 0.99 && freq(n, '22', 'call') === 1 && freq(n, 'AKs', 'fold') === 1, 'SB plays the imported chart');
+  } finally { clearUserCharts(); addUserCharts(saved); }
+});
+await test('U24-N','no chart at the stack: the chart imported for the same spot at the nearest stack plays', () => {
   const saved = getUserCharts();
   try {
     clearUserCharts();
