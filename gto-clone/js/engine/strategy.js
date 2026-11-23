@@ -93,6 +93,16 @@ export const chartDepth = (stack) => (stack < 22.5 ? 20 : stack < 37.5 ? 25 : st
 // Close enough to the chart's depth to use its all-ins and the BB's charts
 // (shorter than that, the model's shoving ranges apply).
 export const chartFits = (stack) => stack >= 0.8 * chartDepth(stack) && stack <= 1.4 * chartDepth(stack);
+// The stack the charts are read at for this decision: the lowest starting stack
+// among the players still in the hand (a player who folded no longer counts).
+// cfg.seatStacks gives each seat's stack when they differ (tournament, a real
+// hand); without it every seat has cfg.stack.
+export function chartStack(st) {
+  const s = st.cfg.seatStacks;
+  if (!s) return st.cfg.stack;
+  const v = alive(st).map((i) => s[i]).filter((x) => x > 0);
+  return v.length ? Math.round(Math.min(...v)) : st.cfg.stack;
+}
 // Between two chart depths (25-50bb, 50-100bb) the charts are blended: each
 // hand's frequencies move in a straight line from the lower chart (t = 0) to
 // the upper one (t = 1). 30bb is 80% the 25bb chart, 40bb 60% the 50bb one.
@@ -190,8 +200,9 @@ export function bbChart(st) {
   // nearest stack plays, unless a built-in chart is nearer (a tie goes to the import).
   const near = userSpotChart(st, true);
   if (!chartOpen(cfg.open)) return near;
-  if (st.toAct !== 5) return closest(cfg.stack, [near, defChart(st)]);
-  return closest(cfg.stack, [near, userBbNear(st), bbBuilt(st)]);
+  const stack = chartStack(st);
+  if (st.toAct !== 5) return closest(stack, [near, defChart(st)]);
+  return closest(stack, [near, userBbNear(st), bbBuilt(st)]);
 }
 // How far a chart is from the stack: its depth's, or the nearer of a blend's two.
 const gap = (spot, stack) => (spot.blend ? Math.min(stack - spot.blend.lo, spot.blend.hi - stack) : Math.abs(spot.parts[0].depth - stack));
@@ -204,7 +215,7 @@ function closest(stack, list) {
 const oneChart = (ch, depth) => ({ title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] });
 // The BB chart imported for this spot at the stack nearest to the hand's, or null.
 function userBbNear(st) {
-  const stack = st.cfg.stack;
+  const stack = chartStack(st);
   const stacks = [...new Set(userBbStacks())].sort((a, b) => Math.abs(a - stack) - Math.abs(b - stack) || a - b);
   for (const s of stacks) {
     const user = userBbCharts(s), ch = user && bbChartAt(st, s);
@@ -214,21 +225,21 @@ function userBbNear(st) {
 }
 // The BB's built-in charts (with any imported at 20, 25 or 50bb on top).
 function bbBuilt(st) {
-  const { cfg } = st;
+  const stack = chartStack(st);
   // A BB chart imported for this exact stack plays as is.
-  if (userBbCharts(cfg.stack)) {
-    const ex = bbChartAt(st, cfg.stack);
-    if (ex) return { title: ex.title, raiseLabel: ex.raiseLabel, blend: null, parts: [{ chart: ex, depth: cfg.stack, w: 1 }] };
+  if (userBbCharts(stack)) {
+    const ex = bbChartAt(st, stack);
+    if (ex) return { title: ex.title, raiseLabel: ex.raiseLabel, blend: null, parts: [{ chart: ex, depth: stack, w: 1 }] };
   }
-  const b = chartBlend(cfg.stack);
+  const b = chartBlend(stack);
   if (b && b.hi === 50) {
     const lo = bbChartAt(st, 25), hi = bbChartAt(st, 50);
     if (!lo || !hi) return null;
     const raiseLabel = lo.raiseLabel === hi.raiseLabel ? lo.raiseLabel : 'Raise';
     return { title: hi.title, raiseLabel, blend: b, parts: [{ chart: lo, depth: 25, w: 1 - b.t }, { chart: hi, depth: 50, w: b.t }] };
   }
-  const depth = chartDepth(cfg.stack);
-  if (!bbSetAt(depth) || !chartFits(cfg.stack)) return null;
+  const depth = chartDepth(stack);
+  if (!bbSetAt(depth) || !chartFits(stack)) return null;
   const ch = bbChartAt(st, depth);
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] } : null;
 }
@@ -239,13 +250,14 @@ function bbBuilt(st) {
 // nearest stack when none is at this one.
 function userSpotChart(st, near = false) {
   const p = st.toAct, o = st.lastAggr;
-  let stack = st.cfg.stack;
+  const at = chartStack(st);
+  let stack = at;
   const sbLimp = st.limpers.length === 1 && st.limpers[0] === 4 && p === 5 && o === 4;
   // The SB limped and the BB raised (or shoved): 'SB vs relance BB' / 'SB vs tapis BB'.
   const sbIso = st.limpers.length === 1 && st.limpers[0] === 4 && p === 4 && o === 5 && st.raiseLevel === 1;
   if (o < 0 || p < 0 || (st.limpers.length && !sbLimp && !sbIso)) return null;
   const look = (line) => {
-    const s = near ? nearestStack(userVsStacks(POS[p], POS[o], line), st.cfg.stack) : st.cfg.stack;
+    const s = near ? nearestStack(userVsStacks(POS[p], POS[o], line), at) : at;
     const ch = s == null ? null : userVsChart(POS[p], POS[o], line, s);
     if (ch) stack = s;
     return ch;
@@ -261,9 +273,9 @@ function userSpotChart(st, near = false) {
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth: stack, w: 1 }] } : null;
 }
 function defChart(st) {
-  const p = st.toAct, o = st.lastAggr, depth = chartDepth(st.cfg.stack);
+  const p = st.toAct, o = st.lastAggr, stack = chartStack(st), depth = chartDepth(stack);
   const set = DEF_BY_DEPTH[depth]?.[POS[p]];
-  if (!set || !chartFits(st.cfg.stack) || st.raiseLevel !== 1 || st.limpers.length) return null;
+  if (!set || !chartFits(stack) || st.raiseLevel !== 1 || st.limpers.length) return null;
   if (remaining(st, o) <= 0 || !alive(st).every((i) => i === o || i >= p)) return null;
   const ch = set[POS[o]];
   return ch ? { title: ch.title, raiseLabel: ch.raiseLabel, blend: null, parts: [{ chart: ch, depth, w: 1 }] } : null;
@@ -275,7 +287,7 @@ export function pushFoldSpot(st) {
   if (st.street !== 0 || isHU(st) || cfg.stack > PUSH_FOLD_STACK || st.limpers.length || st.toAct < 0) return null;
   if (Math.abs(rangeScale(cfg) - 1) > 0.005) return null;
   const p = st.toAct;
-  if (st.raiseLevel === 0 && p <= 4) return exactChart(p, cfg.stack) ? null : { kind: 'push', i: p, nash: pushFoldNash(cfg.stack) }; // the user's chart wins
+  if (st.raiseLevel === 0 && p <= 4) return exactChart(p, chartStack(st)) ? null : { kind: 'push', i: p, nash: pushFoldNash(cfg.stack) }; // the user's chart wins
   if (st.raiseLevel === 1 && remaining(st, st.lastAggr) <= 0 && p > st.lastAggr) {
     if (userSpotChart(st, true)) return null; // the user's chart facing this shove wins (at the nearest stack)
     return { kind: 'call', i: st.lastAggr, j: p, nash: pushFoldNash(cfg.stack) };
@@ -367,7 +379,7 @@ function preflopClassFreqs(st, actions, range) {
   const shoveCall = Math.min(0.6, (0.025 + 2 / st.cfg.stack) * k);
   const facingShove = rl >= 1 && iR < 0 && st.lastAggr >= 0 && remaining(st, st.lastAggr) <= 0;
   const widths = {}; // once per seat: the loop below asks for it for each of the 169 classes
-  const width = (q) => (widths[q] ??= hu && q === 4 ? HU_OPEN : openWidth(q, st.cfg.stack));
+  const width = (q) => (widths[q] ??= hu && q === 4 ? HU_OPEN : openWidth(q, chartStack(st)));
   const pf = pushFoldSpot(st);
   const bbc = pf ? null : bbChart(st);
   // Players who already called the open (multiway spots only).
@@ -385,14 +397,14 @@ function preflopClassFreqs(st, actions, range) {
     } else if (rl === 0 && p <= 4 && !facingLimp) {
       // First in: the user's chart (heads-up, the button opens most hands).
       // With the "limp" open size, the raising range limps.
-      const f = hu && p === 4 ? { raise: within(pc, HU_OPEN, 0.03), limp: 0 } : openFreqs(p, c, st.cfg.stack);
+      const f = hu && p === 4 ? { raise: within(pc, HU_OPEN, 0.03), limp: 0 } : openFreqs(p, c, chartStack(st));
       if (st.cfg.open === 'limp') {
         // Limp mode: the raising range limps, except the part that shoves at 20bb and less.
         raise = iR >= 0 ? f.raise * shoveShare(c, st.cfg.stack, true) : 0;
         call = f.raise - raise + f.limp;
       } else {
         raise = f.raise; call = f.limp;
-        if (!hu && (chartFits(st.cfg.stack) || exactChart(p, st.cfg.stack))) jam = f.jam || 0; // the chart's own all-ins (25bb, 20bb, exact stacks)
+        if (!hu && (chartFits(chartStack(st)) || exactChart(p, chartStack(st)))) jam = f.jam || 0; // the chart's own all-ins (25bb, 20bb, exact stacks)
       }
     } else if (facingLimp && p !== 5) {
       raise = within(pc, 0.12 * k); // isolate the top

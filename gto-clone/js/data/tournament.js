@@ -116,6 +116,8 @@ export function nextHand(t) {
   // push/fold equilibrium is computed for (each one takes seconds), scaled.
   const stack = eff > 15 ? Math.round(eff) : eff > 12 ? 15 : 10;
   const cfg = { stack, open: stack < 37.5 ? '2' : '2.5', ko: t.ko, stage: stageOf(t), multiway: true, bf: heroBubbleFactor(t) };
+  // The charts are read at the lowest stack among the players still in (engine/strategy.js chartStack).
+  cfg.seatStacks = stacks.map((s) => Math.round(s * 10) / 10);
   if (others.every((s) => s < stacks[hero])) cfg.big = hero;
   else if (others.every((s) => s > stacks[hero])) cfg.short = hero;
   return { cfg, hero, live, seats, stacks, scale: eff / stack };

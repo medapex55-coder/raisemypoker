@@ -58,6 +58,10 @@ export function extractDecisions(hand) {
   const base = { h: hand.id, t: hand.tid, at: hand.at || null, c: hand.cards, hp };
 
   let raises = [], limpers = [], coldCallers = 0, heroActs = 0, skipped = 0;
+  // The effective stack of a decision: the lowest stack among the players
+  // still in the hand (those who folded before the hero acts don't count).
+  const folded = new Set();
+  const effNow = () => Math.min(chips(hero), ...others.filter((o) => !folded.has(o.name)).map((o) => o.chips)) / bb;
   for (const a of hand.pre) {
     if (a.name === hero) {
       heroActs++;
@@ -65,19 +69,16 @@ export function extractDecisions(hand) {
       if (heroActs === 1) {
         if (!raises.length && !limpers.length) {
           if (hp === 5) break; // walk
-          const eff = Math.min(chips(hero), Math.max(...others.map((o) => o.chips))) / bb;
-          out.push({ ...base, sc: 'RFI', s: stackBucket(eff), o: openCfg(act === 'raise' ? a.to / bb : 0), a: act });
+          out.push({ ...base, sc: 'RFI', s: stackBucket(effNow()), o: openCfg(act === 'raise' ? a.to / bb : 0), a: act });
         } else if (!raises.length) {
           const lp = limpers.map(pos);
           if (new Set(lp).size !== lp.length || lp.some((x) => x >= hp && hp !== 5)) { skipped++; break; }
-          const eff = Math.min(chips(hero), Math.max(...limpers.map(chips))) / bb;
-          out.push({ ...base, sc: 'VL', lp, s: stackBucket(eff), o: 'limp', a: act });
+          out.push({ ...base, sc: 'VL', lp, s: stackBucket(effNow()), o: 'limp', a: act });
         } else if (raises.length === 1 && !coldCallers && !limpers.length) {
           const r = raises[0];
           const vp = pos(r.name);
           if (vp == null || vp >= hp) { skipped++; break; }
-          const eff = Math.min(chips(hero), chips(r.name)) / bb;
-          out.push({ ...base, sc: r.allin ? 'VS' : 'VO', vp, s: stackBucket(eff), o: openCfg(r.to / bb), a: act });
+          out.push({ ...base, sc: r.allin ? 'VS' : 'VO', vp, s: stackBucket(effNow()), o: openCfg(r.to / bb), a: act });
         } else { skipped++; break; }
       } else if (heroActs === 2) {
         // Hero opened and faces exactly one re-raise.
@@ -85,7 +86,7 @@ export function extractDecisions(hand) {
         if (first && first.sc === 'RFI' && first.a === 'raise' && raises.length === 2 && raises[0].name === hero && !coldCallers) {
           const r = raises[1];
           const vp = pos(r.name);
-          if (vp != null && vp > hp) out.push({ ...base, sc: 'V3', vp, s: first.s, o: first.o, a: act, r3: r.allin });
+          if (vp != null && vp > hp) out.push({ ...base, sc: 'V3', vp, s: stackBucket(effNow()), o: first.o, a: act, r3: r.allin });
         }
         break;
       }
@@ -93,6 +94,7 @@ export function extractDecisions(hand) {
       if (act === 'fold') break;
       continue;
     }
+    if (a.type === 'fold') folded.add(a.name);
     if (a.type === 'raise' || a.type === 'bet') raises.push({ name: a.name, to: a.to, allin: a.allin });
     else if (a.type === 'call') { if (raises.length) coldCallers++; else limpers.push(a.name); }
   }

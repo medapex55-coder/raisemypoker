@@ -23,6 +23,14 @@ export function replayHand(hand) {
   const eff = Math.min(heroSeat.chips, Math.max(...others.map((s) => s.chips))) / hand.bb;
   const stack = stackBucket(eff); // a Study depth, so the decision opens in Study as is
   const base = { stack, open: stack < 37.5 ? '2' : '2.5', ko: false, stage: '100', ante: round(((hand.ante || 0) * hand.seats.filter((s) => s.chips > 0).length) / hand.bb, 2) };
+  // Each seat's real stack: the charts are read at the lowest one still in the
+  // hand (several early seats of a big table share LJ: the deepest one counts).
+  const seatStacks = Array(6).fill(0);
+  for (const s of hand.seats) {
+    const p = map.get(s.seat);
+    if (p != null && s.chips > 0) seatStacks[p] = Math.max(seatStacks[p], round(s.chips / hand.bb, 1));
+  }
+  base.seatStacks = seatStacks;
   const present = new Set(map.values());
   const players = {};
   const added = new Set();

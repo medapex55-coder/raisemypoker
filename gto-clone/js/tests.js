@@ -11,7 +11,7 @@ import { initialState, applyAction, legalActions, foldTo, dealBoard, replay, POS
 import { solve, createSolver } from './engine/solver.js';
 import { createParallelSolver } from './engine/solver-parallel.js';
 import { addSolution } from './engine/solutions.js';
-import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine, chartDepthFor } from './engine/strategy.js';
+import { analyze, comboFreqs, overallFreqs, rangeCombos, setOpenStyle, rangeScale, bbChart, rangesOf, pushFoldSpot, liveLine, chartDepthFor, chartStack } from './engine/strategy.js';
 import { pushFoldNash, comboShare } from './engine/pushfold.js';
 import { parseChartText, addUserCharts, getUserCharts, clearUserCharts, TEMPLATE, guessSpot, spotFromText, userChartsReady, vsSeats, lineVillains, spotTitle } from './data/user-charts.js';
 import { idbGet } from './data/idb.js';
@@ -505,7 +505,7 @@ await test('U24-W', 'more spots: a shove from any seat (open shove or 3bet shove
     assert(freq(analyze(l), 'AA', 'fold') === 1, 'BB folds AA as the chart says');
   } finally { clearUserCharts(); addUserCharts(saved); }
 });
-await test('U24-L', 'BvB: the SB facing the BB\'s raise after its limp, and the BB vs the SB\'s limp from "Face à un open"', () => {
+await test('U24-B', 'BvB: the SB facing the BB\'s raise after its limp, and the BB vs the SB\'s limp from "Face à un open"', () => {
   assert(vsSeats('open', 'BB').join() === 'SB' && lineVillains('open').includes('BB'), `SB vs BB raise: ${vsSeats('open', 'BB')}`);
   assert(spotTitle({ type: 'vs', seat: 'SB', vs: 'BB', line: 'open' }) === 'SB vs relance BB', 'title');
   const back = spotFromText('SB vs relance BB 25bb');
@@ -522,6 +522,32 @@ await test('U24-L', 'BvB: the SB facing the BB\'s raise after its limp, and the 
     assert(s.toAct === 4 && /relance BB/.test(bbChart(s)?.title || ''), `SB vs BB raise uses the imported chart: ${bbChart(s)?.title}`);
     const n = analyze(s);
     assert(freq(n, 'AA', 'raise') > 0.99 && freq(n, '22', 'call') === 1 && freq(n, 'AKs', 'fold') === 1, 'SB plays the imported chart');
+  } finally { clearUserCharts(); addUserCharts(saved); }
+});
+await test('U24-E', 'stacks that differ: the charts are read at the lowest stack among the players still in (a player who folded no longer counts)', () => {
+  const saved = getUserCharts();
+  try {
+    clearUserCharts();
+    const F = Array(13).fill('FFFFFFFFFFFFF'), C = Array(13).fill('CCCCCCCCCCCCC');
+    addUserCharts([
+      { type: 'vs', seat: 'BTN', vs: 'CO', line: 'open', stack: 20, grid: F },
+      { type: 'vs', seat: 'BTN', vs: 'CO', line: 'open', stack: 50, grid: C },
+    ]);
+    // The reported hand: LJ 50.9, HJ 19 (folds), CO 52.7 opens, BTN 41.3, SB 51.1, BB 49.
+    const btn = (seatStacks) => {
+      let s = initialState({ stack: 41, open: '2.5', seatStacks });
+      s = act(act(s, 'fold'), 'fold'); // LJ, HJ
+      return act(s, 'raise'); // the CO opens, the BTN decides
+    };
+    const s = btn([50.9, 19, 52.7, 41.3, 51.1, 49]);
+    assert(s.toAct === 3 && chartStack(s) === 41, `chart stack 41 (the HJ's 19bb folded): ${chartStack(s)}`);
+    assert(bbChart(s)?.parts[0].depth === 50, `BTN vs CO at 41bb plays the 50bb chart: ${bbChart(s)?.parts[0].depth}`);
+    // The SB still in with 19bb: the 20bb chart. Once the BTN and the SB fold,
+    // the BB (49bb) faces the CO (52.7bb): 49bb.
+    const short = btn([50.9, 49, 52.7, 41.3, 19, 49]);
+    assert(chartStack(short) === 19 && bbChart(short)?.parts[0].depth === 20, `SB 19bb still in: ${chartStack(short)} / ${bbChart(short)?.parts[0].depth}`);
+    const bb = act(act(short, 'fold'), 'fold');
+    assert(bb.toAct === 5 && chartStack(bb) === 49, `after the SB folds: ${chartStack(bb)}`);
   } finally { clearUserCharts(); addUserCharts(saved); }
 });
 await test('U24-N','no chart at the stack: the chart imported for the same spot at the nearest stack plays', () => {

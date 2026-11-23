@@ -294,7 +294,9 @@ export function stateKey(st) {
   const fmt = (st.cfg.ko ? '/ko' : '') + (st.cfg.stage && st.cfg.stage !== '100' ? '/' + st.cfg.stage : '') + (st.cfg.bf != null ? '/bf' + st.cfg.bf.toFixed(3) : '');
   const pl = st.cfg.players ? '/p' + JSON.stringify(st.cfg.players) : '';
   const cov = st.cfg.big != null ? '/big' + st.cfg.big : st.cfg.short != null ? '/short' + st.cfg.short : '';
-  return `${st.cfg.stack}bb/${st.cfg.open}${fmt}${anteOf(st.cfg) !== 1 ? '/ante' + anteOf(st.cfg) : ''}${st.cfg.multiway ? '/mw' : ''}${pl}${cov}#` + st.history.map((h) => h.kind === 'deal' ? '/' + h.cards.map(cardStr).join('') : POS[h.p] + ':' + actionKey(h.act)).join('|');
+  // Each seat's stack (the charts are read at the lowest one still in the hand).
+  const ss = st.cfg.seatStacks ? '/s' + st.cfg.seatStacks.map((x) => Math.round(x || 0)).join(',') : '';
+  return `${st.cfg.stack}bb/${st.cfg.open}${fmt}${anteOf(st.cfg) !== 1 ? '/ante' + anteOf(st.cfg) : ''}${st.cfg.multiway ? '/mw' : ''}${pl}${cov}${ss}#` + st.history.map((h) => h.kind === 'deal' ? '/' + h.cards.map(cardStr).join('') : POS[h.p] + ':' + actionKey(h.act)).join('|');
 }
 
 export function actionLabel(st, act, units = 'bb') {

@@ -7,7 +7,7 @@ import {
   POS, STREETS, initialState, applyAction, dealBoard, foldTo, legalActions, actionLabel, actionRole,
   aggression, pot, remaining, alive, toCallOf, STACKS, anteOf,
 } from '../engine/game.js';
-import { analyze, comboFreqs, comboEVs, classSummary, chartCode, chartCodeAt, chartBlend, getOpenStyle, rangesOf, chartDepthFor, bbChart, bbCode, pushFoldSpot, liveLine } from '../engine/strategy.js';
+import { analyze, comboFreqs, comboEVs, classSummary, chartCode, chartCodeAt, chartBlend, getOpenStyle, rangesOf, chartDepthFor, bbChart, bbCode, pushFoldSpot, liveLine, chartStack } from '../engine/strategy.js';
 import { saveSession, uid, getSettings, getProgress } from '../store.js';
 import { practiceSpotKey, studyLink, spotState } from '../data/leaks.js';
 import { markSlotDone } from '../data/program.js';
@@ -598,8 +598,9 @@ export function explain(node, i) {
   const firstIn = st.street === 0 && st.raiseLevel === 0 && !st.limpers.length && st.toAct <= 4 && st.cfg.stage !== 'hu';
   const cls = CLASSES[CLASS_OF_COMBO[i]];
   // A chart from another stack: none at this one, the nearest plays.
-  const nearNote = (d) => (d !== st.cfg.stack ? `, le plus proche de ${st.cfg.stack}bb` : '');
-  const mixNote = (b) =>`mélangés à ${st.cfg.stack}bb (${Math.round((1 - b.t) * 100)} % / ${Math.round(b.t * 100)} %)`;
+  const cs = chartStack(st); // the lowest stack still in the hand
+  const nearNote = (d) => (d !== cs ? `, le plus proche de ${cs}bb` : '');
+  const mixNote = (b) =>`mélangés à ${cs}bb (${Math.round((1 - b.t) * 100)} % / ${Math.round(b.t * 100)} %)`;
   const pf = pushFoldSpot(st);
   if (pf) {
     const s = pf.kind === 'push' ? pf.nash.push[pf.i] : pf.nash.call[pf.i][pf.j];
@@ -612,13 +613,13 @@ export function explain(node, i) {
       R: 'toujours raise', A: 'tapis', a: 'tapis ou limp, 50/50', M: 'limp', m: 'limp ou fold, 50/50',
     }[code] || 'fold');
     const flex = (code) => 'LTX'.includes(code);
-    const b = chartBlend(st.cfg.stack, st.toAct);
+    const b = chartBlend(cs, st.toAct);
     if (b) {
       const lo = chartCodeAt(st.toAct, cls, b.lo), hi = chartCodeAt(st.toAct, cls, b.hi);
       parts.push(`Tes charts ${b.lo}bb (${text(lo)}) et ${b.hi}bb (${text(hi)}), ${mixNote(b)}.${flex(lo) || flex(hi) ? ` Style : ${getOpenStyle()}.` : ''}`);
     } else {
-      const code = chartCode(st.toAct, cls, st.cfg.stack);
-      const d = chartDepthFor(st.toAct, st.cfg.stack);
+      const code = chartCode(st.toAct, cls, cs);
+      const d = chartDepthFor(st.toAct, cs);
       parts.push(`Ton chart ${d}bb${nearNote(d)} : ${text(code)}.${flex(code) ? ` Style : ${getOpenStyle()}.` : ''}`);
     }
   }
